@@ -1,0 +1,11 @@
+cat <<EOF > .gitignore
+# Ignore downloads and temp folders
+github_agent_downloads/
+temp_repos/
+*.zip
+
+# Ignore python system files
+__pycache__/
+*.pyc
+.DS_Store
+EOF
