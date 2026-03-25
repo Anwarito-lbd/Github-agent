@@ -30,6 +30,10 @@ run = "python3 scripts/bootstrap.py verify"
 description = "Print bootstrap matrix"
 run = "python3 scripts/bootstrap.py report"
 
+[tasks.bootstrap_paths]
+description = "Export compact cloned repo paths list"
+run = "python3 scripts/export_cloned_paths.py"
+
 [tasks.bootstrap_retry]
 description = "Retry bootstrap with local cache env"
 run = "python3 scripts/bootstrap_retry.py"

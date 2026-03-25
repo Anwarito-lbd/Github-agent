@@ -16,6 +16,16 @@ bash scripts/onboard.sh
 - Writes strict bootstrap outputs to `.bootstrap/status.json` and `.bootstrap/latest_report.md`.
 - Enforces quality via `lefthook`, `ruff`, and CI bootstrap checks.
 
+## Complete Capability Map
+- Collector mode: search top GitHub repos by keyword, clone in parallel, strip `.git`, zip outputs.
+- Bootstrap mode: detect/install/clone/verify/report every configured tool/repo.
+- Clone cache mode: keep all external references locally under `.tools-cache/`.
+- Verification mode: validates binaries, commands, URL resources, and cloned repo README presence.
+- Export mode: generate compact path index of cloned repos for quick local navigation.
+- Onboarding mode: one command to setup env + run bootstrap end-to-end.
+- CI mode: runs bootstrap scan + doctor on PRs/pushes.
+- Ops contract mode: includes your full execution/quality/tooling contract in this README.
+
 ## One-Command Onboarding
 ```bash
 bash scripts/onboard.sh
@@ -53,6 +63,7 @@ task bootstrap:install
 task bootstrap:clone
 task bootstrap:verify
 task bootstrap:report
+task bootstrap:paths
 task bootstrap:retry
 task lint
 task format
@@ -65,6 +76,7 @@ task format
 - Tool/repo inventory: `config/tool_catalog.json`
 - Local clone cache: `.tools-cache/`
 - Bootstrap state/report: `.bootstrap/`
+- Cloned path exports: `.bootstrap/cloned_repo_paths.txt` and `.bootstrap/cloned_repo_paths.md`
 
 ## New Machine Bring-Up (Detailed)
 1. Clone + enter:
@@ -90,6 +102,11 @@ task bootstrap:report
 - Re-run:
 ```bash
 task bootstrap:retry
+```
+
+6. Export compact cloned-path list:
+```bash
+task bootstrap:paths
 ```
 
 ## Tool + Repo Use Cases (Each Item)

@@ -11,6 +11,7 @@
     "bootstrap:clone": "python3 scripts/bootstrap.py clone",
     "bootstrap:verify": "python3 scripts/bootstrap.py verify",
     "bootstrap:report": "python3 scripts/bootstrap.py report",
+    "bootstrap:paths": "python3 scripts/export_cloned_paths.py",
     "bootstrap:retry": "python3 scripts/bootstrap_retry.py",
     "doctor": "python3 scripts/bootstrap.py doctor"
   },

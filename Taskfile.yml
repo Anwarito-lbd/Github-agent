@@ -43,6 +43,11 @@ tasks:
     cmds:
       - python3 scripts/bootstrap.py report
 
+  bootstrap:paths:
+    desc: "Export a compact list of cloned repo paths"
+    cmds:
+      - python3 scripts/export_cloned_paths.py
+
   bootstrap:retry:
     desc: "Retry bootstrap with local cache env and preflight hints"
     cmds:
