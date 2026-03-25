@@ -1,0 +1,19 @@
+version: '3'
+
+tasks:
+  setup:
+    desc: "Set up the python environment"
+    cmds:
+      - uv venv
+      - uv pip install -r requirements.txt
+      - lefthook install
+
+  format:
+    desc: "Format the code using ruff"
+    cmds:
+      - ruff format .
+
+  lint:
+    desc: "Lint the code using ruff"
+    cmds:
+      - ruff check .
