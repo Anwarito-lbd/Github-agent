@@ -222,6 +222,13 @@
       "cache_dir": "spec-kit"
     },
     {
+      "id": "repo-claude-ads",
+      "name": "AgriciDaniel/claude-ads",
+      "kind": "repo",
+      "repo_url": "https://github.com/AgriciDaniel/claude-ads.git",
+      "cache_dir": "claude-ads"
+    },
+    {
       "id": "repo-go-task-task",
       "name": "go-task/task",
       "kind": "repo",
