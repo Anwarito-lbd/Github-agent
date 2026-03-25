@@ -1,0 +1,39 @@
+[tools]
+python = "3.13"
+node = "24"
+
+[tasks.bootstrap]
+description = "Run full bootstrap pipeline"
+run = "python3 scripts/bootstrap.py all"
+
+[tasks.onboard]
+description = "One-command setup for a fresh clone"
+run = "bash scripts/onboard.sh"
+
+[tasks.bootstrap_scan]
+description = "Scan availability"
+run = "python3 scripts/bootstrap.py scan"
+
+[tasks.bootstrap_install]
+description = "Install tooling"
+run = "python3 scripts/bootstrap.py install"
+
+[tasks.bootstrap_clone]
+description = "Clone reference repos"
+run = "python3 scripts/bootstrap.py clone"
+
+[tasks.bootstrap_verify]
+description = "Verify installed/cloned tools"
+run = "python3 scripts/bootstrap.py verify"
+
+[tasks.bootstrap_report]
+description = "Print bootstrap matrix"
+run = "python3 scripts/bootstrap.py report"
+
+[tasks.bootstrap_retry]
+description = "Retry bootstrap with local cache env"
+run = "python3 scripts/bootstrap_retry.py"
+
+[tasks.doctor]
+description = "Environment sanity check"
+run = "python3 scripts/bootstrap.py doctor"

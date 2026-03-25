@@ -1,0 +1,344 @@
+{
+  "entries": [
+    {
+      "id": "gh-cli",
+      "name": "gh",
+      "kind": "cli",
+      "binary": "gh",
+      "install": ["brew", "install", "gh"],
+      "verify": ["gh", "--version"],
+      "manual_install": "brew install gh"
+    },
+    {
+      "id": "task-cli",
+      "name": "task",
+      "kind": "cli",
+      "binary": "task",
+      "detect": ["task", "--help"],
+      "detect_contains": "Runs the specified task(s).",
+      "install": ["brew", "install", "go-task"],
+      "verify": ["task", "--help"],
+      "verify_contains": "Runs the specified task(s).",
+      "manual_install": "brew install go-task"
+    },
+    {
+      "id": "mise-cli",
+      "name": "mise",
+      "kind": "cli",
+      "binary": "mise",
+      "install": ["brew", "install", "mise"],
+      "verify": ["mise", "--version"],
+      "manual_install": "brew install mise"
+    },
+    {
+      "id": "lefthook-cli",
+      "name": "lefthook",
+      "kind": "cli",
+      "binary": "lefthook",
+      "install": ["brew", "install", "lefthook"],
+      "verify": ["lefthook", "version"],
+      "manual_install": "brew install lefthook"
+    },
+    {
+      "id": "uv-cli",
+      "name": "uv",
+      "kind": "cli",
+      "binary": "uv",
+      "install": ["brew", "install", "uv"],
+      "verify": ["uv", "--version"],
+      "manual_install": "brew install uv"
+    },
+    {
+      "id": "ruff-cli",
+      "name": "ruff",
+      "kind": "cli",
+      "binary": "ruff",
+      "install": ["brew", "install", "ruff"],
+      "verify": ["ruff", "--version"],
+      "manual_install": "brew install ruff"
+    },
+    {
+      "id": "biome-cli",
+      "name": "biome",
+      "kind": "cli",
+      "binary": "biome",
+      "package": "@biomejs/biome",
+      "local_bin": "node_modules/.bin/biome",
+      "install": ["npm", "install", "--save-dev", "@biomejs/biome"],
+      "verify": ["npx", "biome", "--version"],
+      "manual_install": "npm install --save-dev @biomejs/biome"
+    },
+    {
+      "id": "nx-cli",
+      "name": "nx",
+      "kind": "cli",
+      "binary": "nx",
+      "package": "nx",
+      "local_bin": "node_modules/.bin/nx",
+      "install": ["npm", "install", "--save-dev", "nx"],
+      "verify": ["npx", "nx", "--version"],
+      "manual_install": "npm install --save-dev nx"
+    },
+    {
+      "id": "supabase-cli",
+      "name": "supabase",
+      "kind": "cli",
+      "binary": "supabase",
+      "install": ["brew", "install", "supabase/tap/supabase"],
+      "verify": ["supabase", "--version"],
+      "manual_install": "brew install supabase/tap/supabase"
+    },
+    {
+      "id": "vercel-cli",
+      "name": "vercel",
+      "kind": "cli",
+      "binary": "vercel",
+      "package": "vercel",
+      "local_bin": "node_modules/.bin/vercel",
+      "install": ["npm", "install", "--save-dev", "vercel"],
+      "verify": ["npx", "vercel", "--version"],
+      "manual_install": "npm install --save-dev vercel"
+    },
+    {
+      "id": "stripe-cli",
+      "name": "stripe",
+      "kind": "cli",
+      "binary": "stripe",
+      "install": ["brew", "install", "stripe/stripe-cli/stripe"],
+      "verify": ["stripe", "version"],
+      "manual_install": "brew install stripe/stripe-cli/stripe"
+    },
+    {
+      "id": "playwright-cli",
+      "name": "playwright-cli",
+      "kind": "cli",
+      "detect": ["npm", "ls", "playwright-cli", "--depth=0"],
+      "detect_contains": "playwright-cli@",
+      "package": "playwright-cli",
+      "install": ["npm", "install", "--save-dev", "playwright-cli"],
+      "verify": ["npm", "ls", "playwright-cli", "--depth=0"],
+      "verify_contains": "playwright-cli@",
+      "manual_install": "npm install --save-dev playwright-cli"
+    },
+    {
+      "id": "notebooklm-py",
+      "name": "notebooklm-py",
+      "kind": "cli",
+      "detect": ["python3", "-m", "pip", "show", "notebooklm-py"],
+      "install": ["python3", "-m", "pip", "install", "--no-cache-dir", "notebooklm-py"],
+      "verify": ["python3", "-m", "pip", "show", "notebooklm-py"],
+      "manual_install": "python3 -m pip install notebooklm-py"
+    },
+    {
+      "id": "skills-sh",
+      "name": "skills.sh",
+      "kind": "url",
+      "url": "https://skills.sh",
+      "verify": ["curl", "-IsS", "--max-time", "10", "https://skills.sh"],
+      "manual_install": "No install needed (URL resource)."
+    },
+    {
+      "id": "repo-awesome-claude-code-subagents",
+      "name": "VoltAgent/awesome-claude-code-subagents",
+      "kind": "repo",
+      "repo_url": "https://github.com/VoltAgent/awesome-claude-code-subagents.git",
+      "cache_dir": "awesome-claude-code-subagents"
+    },
+    {
+      "id": "repo-claude-mem",
+      "name": "thedotmack/claude-mem",
+      "kind": "repo",
+      "repo_url": "https://github.com/thedotmack/claude-mem.git",
+      "cache_dir": "claude-mem"
+    },
+    {
+      "id": "repo-vercel-labs-skills",
+      "name": "vercel-labs/skills",
+      "kind": "repo",
+      "repo_url": "https://github.com/vercel-labs/skills.git",
+      "cache_dir": "vercel-labs-skills"
+    },
+    {
+      "id": "repo-kcchien-skills-cli",
+      "name": "kcchien/skills-cli",
+      "kind": "repo",
+      "repo_url": "https://github.com/kcchien/skills-cli.git",
+      "cache_dir": "skills-cli"
+    },
+    {
+      "id": "repo-automazeio-ccpm",
+      "name": "automazeio/ccpm",
+      "kind": "repo",
+      "repo_url": "https://github.com/automazeio/ccpm.git",
+      "cache_dir": "ccpm"
+    },
+    {
+      "id": "repo-mcp-servers",
+      "name": "modelcontextprotocol/servers",
+      "kind": "repo",
+      "repo_url": "https://github.com/modelcontextprotocol/servers.git",
+      "cache_dir": "mcp-servers"
+    },
+    {
+      "id": "repo-claude-code-hooks",
+      "name": "shanraisshan/claude-code-hooks",
+      "kind": "repo",
+      "repo_url": "https://github.com/shanraisshan/claude-code-hooks.git",
+      "cache_dir": "claude-code-hooks"
+    },
+    {
+      "id": "repo-claude-code-best-practice",
+      "name": "shanraisshan/claude-code-best-practice",
+      "kind": "repo",
+      "repo_url": "https://github.com/shanraisshan/claude-code-best-practice.git",
+      "cache_dir": "claude-code-best-practice"
+    },
+    {
+      "id": "repo-everything-claude-code",
+      "name": "affaan-m/everything-claude-code",
+      "kind": "repo",
+      "repo_url": "https://github.com/affaan-m/everything-claude-code.git",
+      "cache_dir": "everything-claude-code"
+    },
+    {
+      "id": "repo-superpowers",
+      "name": "obra/superpowers",
+      "kind": "repo",
+      "repo_url": "https://github.com/obra/superpowers.git",
+      "cache_dir": "superpowers"
+    },
+    {
+      "id": "repo-get-shit-done",
+      "name": "gsd-build/get-shit-done",
+      "kind": "repo",
+      "repo_url": "https://github.com/gsd-build/get-shit-done.git",
+      "cache_dir": "get-shit-done"
+    },
+    {
+      "id": "repo-spec-kit",
+      "name": "github/spec-kit",
+      "kind": "repo",
+      "repo_url": "https://github.com/github/spec-kit.git",
+      "cache_dir": "spec-kit"
+    },
+    {
+      "id": "repo-go-task-task",
+      "name": "go-task/task",
+      "kind": "repo",
+      "repo_url": "https://github.com/go-task/task.git",
+      "cache_dir": "go-task-task"
+    },
+    {
+      "id": "repo-jdx-mise",
+      "name": "jdx/mise",
+      "kind": "repo",
+      "repo_url": "https://github.com/jdx/mise.git",
+      "cache_dir": "jdx-mise"
+    },
+    {
+      "id": "repo-evilmartians-lefthook",
+      "name": "evilmartians/lefthook",
+      "kind": "repo",
+      "repo_url": "https://github.com/evilmartians/lefthook.git",
+      "cache_dir": "lefthook"
+    },
+    {
+      "id": "repo-astral-uv",
+      "name": "astral-sh/uv",
+      "kind": "repo",
+      "repo_url": "https://github.com/astral-sh/uv.git",
+      "cache_dir": "astral-uv"
+    },
+    {
+      "id": "repo-astral-ruff",
+      "name": "astral-sh/ruff",
+      "kind": "repo",
+      "repo_url": "https://github.com/astral-sh/ruff.git",
+      "cache_dir": "astral-ruff"
+    },
+    {
+      "id": "repo-biome",
+      "name": "biomejs/biome",
+      "kind": "repo",
+      "repo_url": "https://github.com/biomejs/biome.git",
+      "cache_dir": "biome"
+    },
+    {
+      "id": "repo-nx",
+      "name": "nrwl/nx",
+      "kind": "repo",
+      "repo_url": "https://github.com/nrwl/nx.git",
+      "cache_dir": "nx"
+    },
+    {
+      "id": "repo-supabase-cli",
+      "name": "supabase/cli",
+      "kind": "repo",
+      "repo_url": "https://github.com/supabase/cli.git",
+      "cache_dir": "supabase-cli"
+    },
+    {
+      "id": "repo-stripe-cli",
+      "name": "stripe/stripe-cli",
+      "kind": "repo",
+      "repo_url": "https://github.com/stripe/stripe-cli.git",
+      "cache_dir": "stripe-cli"
+    },
+    {
+      "id": "repo-googleworkspace-cli",
+      "name": "googleworkspace/cli",
+      "kind": "repo",
+      "repo_url": "https://github.com/googleworkspace/cli.git",
+      "cache_dir": "googleworkspace-cli"
+    },
+    {
+      "id": "repo-cli-anything",
+      "name": "HKUDS/CLI-Anything",
+      "kind": "repo",
+      "repo_url": "https://github.com/HKUDS/CLI-Anything.git",
+      "cache_dir": "cli-anything"
+    },
+    {
+      "id": "repo-playwright-cli",
+      "name": "microsoft/playwright-cli",
+      "kind": "repo",
+      "repo_url": "https://github.com/microsoft/playwright-cli.git",
+      "cache_dir": "playwright-cli"
+    },
+    {
+      "id": "repo-notebooklm-py",
+      "name": "teng-lin/notebooklm-py",
+      "kind": "repo",
+      "repo_url": "https://github.com/teng-lin/notebooklm-py.git",
+      "cache_dir": "notebooklm-py"
+    },
+    {
+      "id": "repo-setup-uv",
+      "name": "astral-sh/setup-uv",
+      "kind": "repo",
+      "repo_url": "https://github.com/astral-sh/setup-uv.git",
+      "cache_dir": "setup-uv"
+    },
+    {
+      "id": "repo-ruff-action",
+      "name": "astral-sh/ruff-action",
+      "kind": "repo",
+      "repo_url": "https://github.com/astral-sh/ruff-action.git",
+      "cache_dir": "ruff-action"
+    },
+    {
+      "id": "repo-setup-task",
+      "name": "go-task/setup-task",
+      "kind": "repo",
+      "repo_url": "https://github.com/go-task/setup-task.git",
+      "cache_dir": "setup-task"
+    },
+    {
+      "id": "repo-mise-action",
+      "name": "jdx/mise-action",
+      "kind": "repo",
+      "repo_url": "https://github.com/jdx/mise-action.git",
+      "cache_dir": "mise-action"
+    }
+  ]
+}

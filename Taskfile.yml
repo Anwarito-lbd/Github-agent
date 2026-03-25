@@ -1,12 +1,57 @@
 version: '3'
 
 tasks:
+  onboard:
+    desc: "One-command setup for a fresh clone"
+    cmds:
+      - bash scripts/onboard.sh
+
   setup:
     desc: "Set up the python environment"
     cmds:
       - uv venv
       - uv pip install -r requirements.txt
       - lefthook install
+
+  bootstrap:
+    desc: "Run full bootstrap pipeline (scan -> install -> clone -> verify -> report)"
+    cmds:
+      - python3 scripts/bootstrap.py all
+
+  bootstrap:scan:
+    desc: "Scan tool and repo availability"
+    cmds:
+      - python3 scripts/bootstrap.py scan
+
+  bootstrap:install:
+    desc: "Install all CLI tools from catalog"
+    cmds:
+      - python3 scripts/bootstrap.py install
+
+  bootstrap:clone:
+    desc: "Clone all catalog repos into .tools-cache/"
+    cmds:
+      - python3 scripts/bootstrap.py clone
+
+  bootstrap:verify:
+    desc: "Verify installed tools and cloned repos"
+    cmds:
+      - python3 scripts/bootstrap.py verify
+
+  bootstrap:report:
+    desc: "Print the bootstrap matrix report"
+    cmds:
+      - python3 scripts/bootstrap.py report
+
+  bootstrap:retry:
+    desc: "Retry bootstrap with local cache env and preflight hints"
+    cmds:
+      - python3 scripts/bootstrap_retry.py
+
+  doctor:
+    desc: "Show core environment sanity checks"
+    cmds:
+      - python3 scripts/bootstrap.py doctor
 
   format:
     desc: "Format the code using ruff"

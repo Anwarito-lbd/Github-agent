@@ -1,0 +1,23 @@
+{
+  "name": "github-agent-bootstrap",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Toolchain bootstrap control plane for Github-agent",
+  "scripts": {
+    "onboard": "bash scripts/onboard.sh",
+    "bootstrap": "python3 scripts/bootstrap.py all",
+    "bootstrap:scan": "python3 scripts/bootstrap.py scan",
+    "bootstrap:install": "python3 scripts/bootstrap.py install",
+    "bootstrap:clone": "python3 scripts/bootstrap.py clone",
+    "bootstrap:verify": "python3 scripts/bootstrap.py verify",
+    "bootstrap:report": "python3 scripts/bootstrap.py report",
+    "bootstrap:retry": "python3 scripts/bootstrap_retry.py",
+    "doctor": "python3 scripts/bootstrap.py doctor"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.9",
+    "nx": "^22.6.1",
+    "playwright-cli": "^0.262.0",
+    "vercel": "^50.37.0"
+  }
+}

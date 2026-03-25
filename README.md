@@ -1,64 +1,91 @@
-# 🤖 Github Agent (Auto-Collector)
+# Github Agent + Full Toolchain Bootstrap
 
-An intelligent Python agent designed to automate the search, collection, and archiving of GitHub repositories based on specific keywords and popularity. Ideal for creating code datasets, researching specific implementations, or mass-downloading resources for offline analysis.
+Python GitHub collector plus a reproducible bootstrap control plane for your preferred engineering/product/automation stack.
 
-## 🚀 Features
-- **Smart Search**: Uses the GitHub API to find the highest-starred repositories for any query.
-- **High-Speed Parallel Cloning**: Utilizes multi-threading for blazing-fast downloads.
-- **Auto-Cleaning**: Drops `.git` history folders automatically to drastically reduce zip sizes.
-- **Automatic Archiving**: Bundles everything into a single `.zip` file with a detailed research report.
+## What This Repo Does
+- Runs your original GitHub collector app (`github.agent.py`).
+- Installs and verifies your preferred CLI stack.
+- Clones and verifies all reference repos into `.tools-cache/`.
+- Produces a strict bootstrap matrix report at `.bootstrap/latest_report.md`.
 
-## 🛠 Tech Stack & Agentic Tooling
-This project is bootstrapped and governed by a comprehensive agentic execution stack, enforcing standardized patterns and maximum operational leverage.
-
-### Core Agent Workflow & Intelligence
-- **[Skills & Skills-CLI](https://skills.sh)**: Reusable domain workflows, progressive disclosure of capabilities, and modular logic injection.
-- **[Subagents](https://github.com/VoltAgent/awesome-claude-code-subagents)**: Isolated execution contexts for high-compute, parallelized, and feature-specific workflows.
-- **[Claude-Mem](https://github.com/thedotmack/claude-mem)**: Persistent memory context extending across independent debugging and development sessions.
-- **[CCPM (Claude Code Project Management)](https://github.com/automazeio/ccpm)**: Structured execution tracking, issue lifecycle management, and transparent task ownership.
-- **[MCP (Model Context Protocol)](https://github.com/modelcontextprotocol/servers)**: Native connections mapping database schemas and external APIs into the agent's context.
-- **[Spec-Kit](https://github.com/github/spec-kit)**: Translates ambiguous product requirements into strict, actionable development specs.
-
-### Repo, Build & Environment Operations
-- **[mise](https://github.com/jdx/mise)**: Polyglot version manager ensuring exact runtime versions.
-- **[Task](https://taskfile.dev/)**: YAML-based native task runner to standardize workspace routines and builds.
-- **[Lefthook](https://github.com/evilmartians/lefthook)**: High-speed git hook manager enforcing validation at the pre-commit boundary.
-- **[gh (GitHub CLI)](https://cli.github.com/)**: Native PR, issue, and automated repo operations.
-
-### Python Foundation
-- **[uv](https://github.com/astral-sh/uv)**: Blazing-fast Python package installer and virtual environment manager.
-- **[Ruff](https://github.com/astral-sh/ruff)**: Ultra-fast Rust-based static analysis, linting, and formatting.
-
-## 📦 Installation
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/Anwarito-lbd/Github-agent.git
-   cd Github-agent
-   ```
-
-2. Bootstrap the environment:
-   ```bash
-   task setup
-   ```
-   *(This uses `uv` to create a virtual environment, syncs `requirements.txt`, and active the `lefthook` Git hooks).*
-
-## 💻 Usage
-Run the script to start the interactive CLI:
+## Clone And Access Everything
+After cloning this repo, run one command:
 ```bash
-# Assuming you actived your venv: `source .venv/bin/activate`
-python github.agent.py
+bash scripts/onboard.sh
+```
+This performs setup + install + clone + verify + report.
+
+Alternative:
+```bash
+task onboard
 ```
 
-1. **GitHub Token** *(Optional)*: Enter a Personal Access Token to avoid hitting API rate limits.
-2. **Search Query**: e.g., `trading bot python`, `machine learning`.
-3. **Quantity**: How many repositories to download (e.g., 10, 50).
+## What `task bootstrap` does
+Runs:
+1. `scan` (detect installed/cloned/available)
+2. `install` (attempt CLI installs)
+3. `clone` (clone reference repos to `.tools-cache/`)
+4. `verify` (version/help/README/URL checks)
+5. `report` (matrix output + `.bootstrap/latest_report.md`)
 
-**Output**: A clean, history-free `GITHUB_<query>_<time>.zip` archive generated right in the `github_agent_downloads/` directory.
+Core engine:
+- `scripts/bootstrap.py`
+- `config/tool_catalog.json`
 
-## 🧹 Development Commands
-- `task setup`: Initializes the workspace (`uv venv`, dependencies, `lefthook`).
-- `task lint`: Run `ruff check` on the codebase.
-- `task format`: Apply automated formatting with `ruff format`.
+## Where The Other Repos Are
+- All external repos are cloned to `.tools-cache/`.
+- They are intentionally not committed to git history to keep this repo lightweight.
+- You still get full local access after onboarding, with exact clone paths shown in the report.
 
-## ⚠️ Disclaimer
-Intended for educational and research purposes. Ensure you comply with the open-source licenses of downloaded repositories and respect GitHub's API rate limits.
+## Bootstrap Matrix Format
+The report prints exact columns:
+- `Tool/Repo`
+- `Relevant?`
+- `Installed? (yes/no/already)`
+- `Cloned? (yes/no/already)`
+- `Verified? (yes/no)`
+- `Used in plan? (yes/no)`
+- `Notes`
+
+## Blocker Behavior
+If install/clone is blocked by network, sandbox, credentials, package manager, or OS mismatch:
+- The row is kept unverified.
+- `Notes` records the blocker details.
+- `Notes` includes an exact `manual install:` or `manual clone:` command.
+
+## Profiles and Usage
+- Python/trading/data workflows: `uv`, `ruff`, `task`, `mise`, `lefthook`.
+- JS/web/full-stack workflows: `biome`, `nx`, `vercel`, `supabase`.
+- Automation/research/agent workflows: `playwright-cli`, `notebooklm-py`, MCP and skills repos in `.tools-cache/`.
+- Startup execution workflows: `gh`, `spec-kit`, `ccpm`, task/runbook pattern.
+
+## Commands
+```bash
+task doctor
+task onboard
+task bootstrap
+task bootstrap:scan
+task bootstrap:install
+task bootstrap:clone
+task bootstrap:verify
+task bootstrap:report
+task bootstrap:retry
+task lint
+task format
+```
+
+## Existing App Usage
+Run the collector CLI:
+```bash
+python github.agent.py
+```
+Output zips are written to `github_agent_downloads/`.
+
+## New Machine Runbook
+See:
+- [docs/new-machine-runbook.md](docs/new-machine-runbook.md)
+
+## CI
+GitHub Actions workflow added:
+- `.github/workflows/bootstrap-check.yml`
+- Runs `task bootstrap:scan` and `task doctor` on PRs/pushes.

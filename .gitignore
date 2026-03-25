@@ -10,3 +10,7 @@ __pycache__/
 
 # Environment
 .venv/
+.tools-cache/
+.bootstrap/
+node_modules/
+.cache/
