@@ -20,6 +20,17 @@ Alternative:
 task onboard
 ```
 
+## Fresh Machine Usage
+```bash
+git clone <your-repo>
+cd Github-agent
+bash scripts/onboard.sh
+```
+
+## Tool/Repo Use Cases (Subagents, Tools, Actions)
+See:
+- [docs/tooling-use-cases.md](docs/tooling-use-cases.md)
+
 ## What `task bootstrap` does
 Runs:
 1. `scan` (detect installed/cloned/available)
@@ -89,3 +100,6 @@ See:
 GitHub Actions workflow added:
 - `.github/workflows/bootstrap-check.yml`
 - Runs `task bootstrap:scan` and `task doctor` on PRs/pushes.
+
+## Maintainer Shortcut
+If you want, I can push this commit and open a PR with a short release note.
