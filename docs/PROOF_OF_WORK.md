@@ -316,3 +316,18 @@ The workflow now downloads the lefthook v2.2.2 release archive instead of compil
 ```
 
 Exit code 0. This run has not yet shown whether scan and doctor pass on the GitHub runner.
+
+## Follow-up: install had no destination directory
+
+GitHub Actions run 43350887717 failed in Install lefthook after the download. The log line was:
+
+```text
+install: invalid target '/home/runner/.local/bin/lefthook': No such file or directory
+Process completed with exit code 1.
+```
+
+Run URL: https://github.com/Anwarito-lbd/Github-agent/actions/runs/43350887717
+
+The same `install` on this machine, pointed at a directory that does not exist, exits 1 with `install: cannot create regular file`. Creating the directory first, then installing the v2.2.2 binary, prints `2.2.2` and exits 0. The workflow now runs `mkdir -p "$HOME/.local/bin"` before `install`.
+
+Task v3.54.0, the version that run installed, exits 0 for `task --help` and writes `Runs the specified task(s).` on stderr. `doctor` reads stdout and stderr together, so that substring is visible to it.

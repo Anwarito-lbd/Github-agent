@@ -222,7 +222,7 @@ Actions and tools named in the workflow:
 | `astral-sh/ruff-action@v3` | ruff |
 | lefthook `v2.2.2` release binary | `lefthook_${version}_Linux_x86_64.gz` or `Linux_arm64`, installed onto `PATH` |
 
-The workflow then runs `task bootstrap:scan` and `task doctor`. The first two runs on this branch failed before those steps: ruff check, then `go install` of lefthook. Both are recorded in the proof doc.
+The workflow then runs `task bootstrap:scan` and `task doctor`. The first three runs on this branch failed before those steps: ruff check, `go install` of lefthook, then `install` into a missing `$HOME/.local/bin`. Those runs are recorded in the proof doc.
 
 ### Catalog CLIs and the URL (`config/tool_catalog.json`)
 
