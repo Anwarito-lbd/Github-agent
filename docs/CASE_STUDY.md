@@ -11,6 +11,8 @@ The original collector (November 2025) was interactive-only (`input()` prompts),
 
 ## Architecture overview
 
+![Github-agent Collector Pipeline and Toolchain Inventory](images/collector_overview.png)
+
 ```mermaid
 flowchart LR
   subgraph Collector["github.agent.py (Collector Pipeline)"]

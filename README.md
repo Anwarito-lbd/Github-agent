@@ -54,6 +54,8 @@ Github-agent combines two focused Python tools in one repository:
 
 ## Architecture
 
+![Github-agent Collector Pipeline and Toolchain Inventory](docs/images/collector_overview.png)
+
 ```mermaid
 flowchart TD
   operator[Operator / Automation]
