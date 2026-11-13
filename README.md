@@ -220,10 +220,9 @@ Actions and tools named in the workflow:
 | `go-task/setup-task@v1` | task |
 | `astral-sh/setup-uv@v6` | uv |
 | `astral-sh/ruff-action@v3` | ruff |
-| `actions/setup-go@v5` with `go-version: "stable"` | Go, used to install lefthook |
-| `go install github.com/evilmartians/lefthook@latest` | lefthook, version not pinned |
+| lefthook `v2.2.2` release binary | `lefthook_${version}_Linux_x86_64.gz` or `Linux_arm64`, installed onto `PATH` |
 
-The workflow then runs `task bootstrap:scan` and `task doctor`. This pass did not execute GitHub Actions.
+The workflow then runs `task bootstrap:scan` and `task doctor`. The first two runs on this branch failed before those steps: ruff check, then `go install` of lefthook. Both are recorded in the proof doc.
 
 ### Catalog CLIs and the URL (`config/tool_catalog.json`)
 
@@ -337,7 +336,7 @@ task format         # ruff format .
 
 - A pasted token is placed in the `git clone` URL, so it is part of the process arguments for the duration of the clone.
 - The collector only starts through interactive `input()`. Library functions can be called separately, which is how the search demo was run.
-- `requirements.txt` does not pin versions. There is no `ruff.toml`. The CI lefthook install uses `@latest`.
+- `requirements.txt` does not pin versions. There is no `ruff.toml`. CI installs lefthook `v2.2.2` from the release binary because `go install github.com/evilmartians/lefthook@latest` failed to compile on Go 1.27.4.
 - `doctor` ignores `gh`, which the catalog does verify, and checks `node` and `npm`, which the catalog does not list.
 - Install and catalog-clone commands time out after 60 seconds. Collector clones time out after 180 seconds.
 - There are no tests. The first `ruff check` on 13 November 2026 reported 14 findings. Those findings are fixed in the follow-up commit that makes `ruff check .` exit 0.

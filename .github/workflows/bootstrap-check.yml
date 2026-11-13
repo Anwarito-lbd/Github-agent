@@ -24,15 +24,20 @@ jobs:
       - name: Setup ruff
         uses: astral-sh/ruff-action@v3
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "stable"
-
       - name: Install lefthook
         run: |
-          go install github.com/evilmartians/lefthook@latest
-          echo "$HOME/go/bin" >> "$GITHUB_PATH"
+          version=2.2.2
+          case "$(uname -m)" in
+            x86_64) asset="Linux_x86_64" ;;
+            aarch64|arm64) asset="Linux_arm64" ;;
+            *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
+          esac
+          curl -fsSL -o "$RUNNER_TEMP/lefthook.gz" \
+            "https://github.com/evilmartians/lefthook/releases/download/v${version}/lefthook_${version}_${asset}.gz"
+          gunzip -c "$RUNNER_TEMP/lefthook.gz" > "$RUNNER_TEMP/lefthook"
+          install -m 755 "$RUNNER_TEMP/lefthook" "$HOME/.local/bin/lefthook"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/lefthook" version
 
       - name: Bootstrap scan
         run: task bootstrap:scan

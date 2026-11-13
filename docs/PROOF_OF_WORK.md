@@ -293,3 +293,26 @@ ruff format --check github.agent.py scripts/bootstrap.py scripts/bootstrap_retry
 Exit code 0.
 
 `python3 -m py_compile` on the four Python files exited 0. The empty-query stdin path still exited 1 with `Vous devez écrire quelque chose !`. `search_github("portfolio language:python", 3, "")` still returned three repositories and did not clone them. Star counts on that second call were 27679, 7862, and 7551 for the same three full names as the first call.
+
+## Follow-up: lefthook did not compile on Go 1.27.4
+
+GitHub Actions run 43350526650, job `bootstrap-check`, conclusion failure. Setup ruff succeeded. Install lefthook failed. Bootstrap scan and Doctor were skipped.
+
+The step ran `go install github.com/evilmartians/lefthook@latest` after `actions/setup-go@v5` with `go-version: stable`, which resolved to go1.27.4. The module resolved to lefthook v1.13.6. The compiler errors were:
+
+```text
+# github.com/go-json-experiment/json
+../../../go/pkg/mod/github.com/go-json-experiment/json@v0.0.0-20250910080747-cc2cfa0554c3/alias.go:618:21: undefined: json.SkipFunc
+../../../go/pkg/mod/github.com/go-json-experiment/json@v0.0.0-20250910080747-cc2cfa0554c3/alias.go:980:14: undefined: json.DiscardUnknownMembers
+Process completed with exit code 1.
+```
+
+Run URL: https://github.com/Anwarito-lbd/Github-agent/actions/runs/43350526650
+
+The workflow now downloads the lefthook v2.2.2 release archive instead of compiling `@latest`. The asset checked on this x86_64 machine was `lefthook_2.2.2_Linux_x86_64.gz`. After gunzip, `lefthook version` printed:
+
+```text
+2.2.2
+```
+
+Exit code 0. This run has not yet shown whether scan and doctor pass on the GitHub runner.

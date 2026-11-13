@@ -30,10 +30,12 @@ The collector has no dry-run switch. An empty query on stdin exited 1 with `Vous
 
 The pull request's Bootstrap Checks run then failed before scan and doctor. The Setup ruff step uses `astral-sh/ruff-action@v3`, and that action's default is `ruff check`. It reported the same 14 rules. I fixed them in the next commit: removed the unused import and the encoding cookie, sorted the imports, passed `check=False` to the git version probe, narrowed the clone and search handlers, wrote the report with `writelines`, raised `TypeError` for a catalog that is not a list, kept the top-level interactive handler with an explicit `BLE001` exception, and marked the four Python entrypoints executable. `ruff format` rewrote `github.agent.py`. After that, `ruff check .` and `ruff format --check` both exited 0. The empty query still exits 1, and `search_github("portfolio language:python", 3, "")` still returns three repositories.
 
+The next Bootstrap Checks run got past ruff and failed while installing lefthook. `go install github.com/evilmartians/lefthook@latest` selected v1.13.6 and did not compile on the runner's Go 1.27.4: `go-json-experiment/json` referenced `json.SkipFunc` and `json.DiscardUnknownMembers`, which that toolchain does not define. Go existed in the workflow only to build lefthook, so I removed that setup and installed the v2.2.2 Linux release binary instead. On this machine that binary prints `2.2.2` and exits 0, which is what `doctor` checks.
+
 I did not run install, clone, `all`, or `bootstrap_retry.py`. Those mutate the machine and download 30 repositories. I did call the retry script's resolver: `github.com`, `skills.sh`, `registry.npmjs.org`, and `pypi.org` all resolved. `/opt/homebrew/Cellar` is not on this machine, which is the condition that makes the retry script print its Homebrew warning.
 
 ## What I will show, and what I will not
 
-I will show the pipeline, the catalog, and the transcripts in `docs/PROOF_OF_WORK.md`. I will not show a green doctor run, a populated `.tools-cache/`, or a GitHub Actions result. The workflow file installs task, mise, uv, ruff, and lefthook and then runs scan and doctor. I have not watched that job run.
+I will show the pipeline, the catalog, and the transcripts in `docs/PROOF_OF_WORK.md`. I will not show a green doctor run or a populated `.tools-cache/`. I have watched two Bootstrap Checks runs fail before scan and doctor, first on ruff and then on compiling lefthook. The release-binary install is what I am sending back to that job.
 
 The gap that matters for the next pass is small and specific: a non-interactive collector path, tests around search parsing and the status matrix, pinned Python dependencies, and token handling that stays out of the clone URL.
