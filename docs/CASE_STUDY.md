@@ -36,6 +36,6 @@ I did not run install, clone, `all`, or `bootstrap_retry.py`. Those mutate the m
 
 ## What I will show, and what I will not
 
-I will show the pipeline, the catalog, and the transcripts in `docs/PROOF_OF_WORK.md`. I will not show a green doctor run or a populated `.tools-cache/`. I have watched three Bootstrap Checks runs fail before scan and doctor: ruff, compiling lefthook, then `install` into a missing directory. The workflow now creates `$HOME/.local/bin` before it installs the release binary.
+I will show the pipeline, the catalog, and the transcripts in `docs/PROOF_OF_WORK.md`. I will not show a populated `.tools-cache/`. Three Bootstrap Checks runs failed before scan and doctor. Run 43351099399 then passed, with doctor reporting Python 3.13.18, git 2.56.0, mise 2026.11.7, uv 0.13.8, ruff 0.17.5, lefthook 2.2.2, Node v24.22.3, and npm 11.19.1.
 
 The gap that matters for the next pass is small and specific: a non-interactive collector path, tests around search parsing and the status matrix, pinned Python dependencies, and token handling that stays out of the clone URL.

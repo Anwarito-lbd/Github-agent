@@ -315,7 +315,7 @@ The workflow now downloads the lefthook v2.2.2 release archive instead of compil
 2.2.2
 ```
 
-Exit code 0. This run has not yet shown whether scan and doctor pass on the GitHub runner.
+Exit code 0. The GitHub runner result for scan and doctor is in the section below.
 
 ## Follow-up: install had no destination directory
 
@@ -331,3 +331,24 @@ Run URL: https://github.com/Anwarito-lbd/Github-agent/actions/runs/43350887717
 The same `install` on this machine, pointed at a directory that does not exist, exits 1 with `install: cannot create regular file`. Creating the directory first, then installing the v2.2.2 binary, prints `2.2.2` and exits 0. The workflow now runs `mkdir -p "$HOME/.local/bin"` before `install`.
 
 Task v3.54.0, the version that run installed, exits 0 for `task --help` and writes `Runs the specified task(s).` on stderr. `doctor` reads stdout and stderr together, so that substring is visible to it.
+
+## Follow-up: Bootstrap Checks passed
+
+GitHub Actions run 43351099399, job `bootstrap-check`, conclusion success, on commit `0819e82`. Every step succeeded: Checkout, Setup mise, Setup Task, Setup uv, Setup ruff, Install lefthook, Bootstrap scan, and Doctor.
+
+Install lefthook printed `2.2.2`. Scan ran `python3 scripts/bootstrap.py scan` and printed nothing else. Doctor printed these lines, among the task help text that `task --help` writes to stderr:
+
+```text
+OK   python3 --version :: Python 3.13.18
+OK   git --version :: git version 2.56.0
+OK   mise --version :: 2026.11.7 linux-x64 (2026-11-12)
+OK   uv --version :: uv 0.13.8 (x86_64-unknown-linux-gnu)
+OK   ruff --version :: ruff 0.17.5
+OK   lefthook version :: 2.2.2
+OK   node --version :: v24.22.3
+OK   npm --version :: 11.19.1
+```
+
+The `task --help` row was also `OK`. Its message is the full usage text, which includes `Runs the specified task(s).`
+
+Run URL: https://github.com/Anwarito-lbd/Github-agent/actions/runs/43351099399
