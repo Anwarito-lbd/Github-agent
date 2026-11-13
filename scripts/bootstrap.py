@@ -35,7 +35,7 @@ def load_catalog() -> list[dict[str, Any]]:
     data = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
     entries = data.get("entries", [])
     if not isinstance(entries, list):
-        raise ValueError("Catalog format invalid: entries must be a list.")
+        raise TypeError("Catalog format invalid: entries must be a list.")
     return entries
 
 
@@ -80,9 +80,10 @@ def join_cmd(cmd: list[str]) -> str:
 
 
 def run_cmd(cmd: list[str], timeout: int = 240) -> tuple[bool, str]:
+    resolved_cmd = [shutil.which(cmd[0]) or cmd[0], *cmd[1:]]
     try:
         result = subprocess.run(
-            cmd,
+            resolved_cmd,
             cwd=ROOT,
             capture_output=True,
             text=True,

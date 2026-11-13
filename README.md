@@ -1,487 +1,225 @@
-# Github Agent + Full Toolchain Bootstrap
+# Github-agent
 
-Python GitHub collector plus a reproducible bootstrap control plane for coding, product, systems, automation, research, AI, SaaS, full-stack, and trading workflows.
+Github-agent combines two focused Python tools in one repository:
 
-## Fresh Machine Usage
-```bash
-git clone <your-repo>
-cd Github-agent
-bash scripts/onboard.sh
+1. **`github.agent.py`** — An interactive and scriptable GitHub repository collector that queries the GitHub REST Search API (`GET /search/repositories`), shallow-clones matched repositories concurrently (`git clone --depth 1`), strips `.git` metadata, and packages a ZIP archive with a search summary report under `github_agent_downloads/`.
+2. **`scripts/bootstrap.py`** — A declarative toolchain control plane that reads `config/tool_catalog.json` (44 entries: 13 CLIs, 30 reference repositories, 1 URL) and tracks installation, cloning, and verification state into `.bootstrap/status.json` and `.bootstrap/latest_report.md`.
+
+---
+
+## How the GitHub API Collector Works
+
+### 1. Authentication & Credential Hygiene (`requests` + `git`, plus `gh` catalog verification)
+
+- **HTTP Client Choice**: The collector uses `requests.Session` directly against the GitHub REST Search API v3 (`https://api.github.com/search/repositories`) and `git` subprocesses for cloning — it does **not** use PyGitHub or `httpx`. The GitHub CLI (`gh`) is tracked and verified separately by `scripts/bootstrap.py` via `config/tool_catalog.json`.
+- **Token Resolution Precedence**: `resolve_token()` resolves credentials in order: `--token` CLI flag -> `GITHUB_TOKEN` -> `GH_TOKEN` -> interactive prompt (or anonymous search if left blank).
+- **REST API Headers**: Requests send `Accept: application/vnd.github+json`, `X-GitHub-Api-Version: 2022-11-28`, `User-Agent: Github-Agent-v2`, and `Authorization: Bearer <token>` when authenticated.
+- **No Token Leakage in `git clone` URLs**: Rather than embedding PATs into `https://<token>@github.com/...` command arguments (which exposes secrets in `ps` / process listings), `build_git_auth_env()` injects credentials via Git's environment config mechanism (`GIT_CONFIG_COUNT=1`, `GIT_CONFIG_KEY_0=http.https://github.com/.extraheader`, `GIT_CONFIG_VALUE_0=AUTHORIZATION: basic <base64(x-access-token:TOKEN)>`) alongside `GIT_TERMINAL_PROMPT=0`.
+
+### 2. Pagination, Deduplication & Rate-Limit Handling
+
+- **Bounded Page Sizing**: Each page requests `per_page = min(100, max(1, limit - len(repos_found)))` with `sort=stars` and `order=desc`, avoiding over-fetching when `--limit` is small.
+- **Stop Conditions & Deduplication**: Paging stops when `limit` is reached, `items` is empty, `len(items) < per_page`, `total_count` is satisfied, or `page > 10` (GitHub Search API's 1,000-result cap). Repositories are deduplicated by `full_name` across pages in case star rankings shift mid-pagination.
+- **HTTP Status & Rate-Limit Diagnostics**:
+  - `401`: Invalid or expired token — prints diagnostic and returns `[]`.
+  - `403` / `429`: Parses `X-RateLimit-Remaining`, `X-RateLimit-Reset` (converted to UTC ISO-8601), and `Retry-After`, logs the exact reset window, stops paging, and preserves any already-fetched results.
+  - `422`: Invalid GitHub search query syntax — prints diagnostic and returns `[]`.
+  - `5xx`: Retries up to `max_retries` with linear backoff before stopping cleanly.
+
+### 3. Concurrent Cloning & Packaging Pipeline
+
+1. **Preflight & Query Composition**: Requires `git` on `PATH` (skipped in `--dry-run` mode). `build_search_query()` optionally appends `language:<lang>` and `stars:>=<N>` without duplicating qualifiers already present in `--query`.
+2. **Dry-Run & JSON Mode**: Passing `--dry-run` (optionally with `--json`) prints ranked repository metadata and exits without cloning or writing archives.
+3. **Parallel Shallow Clones**: `package_repos()` runs `ThreadPoolExecutor(max_workers=1..16)` (default `8`) calling `git clone --depth 1` with a 180-second per-repo timeout and `tqdm` progress bar.
+4. **Cross-Platform `.git` Cleanup**: `remove_tree()` uses a `chmod` read-only handler (`_handle_remove_readonly`) so Windows/POSIX read-only git packfiles are removed cleanly. Failed clones clean up partial directories.
+5. **Report & ZIP Output**: Writes `temp_repos/_RAPPORT_DE_RECHERCHE.txt` with a UTC timestamp, archives `temp_repos/` to `github_agent_downloads/GITHUB_<query>_<timestamp>.zip`, and removes `temp_repos/`.
+
+---
+
+## How Bootstrap Works
+
+`python scripts/bootstrap.py all` executes five idempotent stages backed by `.bootstrap/status.json`:
+
+| Stage | Behavior |
+| --- | --- |
+| `scan` | Detects CLIs via `local_bin`, `detect` command, or `PATH`; checks `.tools-cache/<cache_dir>` for repos; marks URLs as N/A for install/clone. |
+| `install` | Runs catalog `install` commands for missing relevant CLIs (creating `package.json` if needed for npm). Records `manual_install` hints on failure. |
+| `clone` | Shallow-clones (`--depth 1`, 60s timeout) reference repos into `.tools-cache/<cache_dir>`. |
+| `verify` | Verifies CLIs via `verify` (+ optional `verify_contains`), repos via `README*` presence, and URLs via `curl -IsS`. |
+| `report` | Renders the 7-column Markdown matrix (`Tool/Repo`, `Relevant?`, `Installed?`, `Cloned?`, `Verified?`, `Used in plan?`, `Notes`) to stdout and `.bootstrap/latest_report.md`. |
+
+`bootstrap.py doctor` checks `python3`, `git`, `task`, `mise`, `uv`, `ruff`, `lefthook`, `node`, and `npm` (resolving `.cmd` shims via `shutil.which` on Windows) and exits `1` if any check fails. `scripts/export_cloned_paths.py` indexes cloned directories in `.tools-cache/` into `.bootstrap/cloned_repo_paths.{txt,md}`.
+
+---
+
+## Architecture
+
+![Github-agent Collector Pipeline and Toolchain Inventory](docs/images/collector_overview.png)
+
+```mermaid
+flowchart TD
+  operator[Operator / Automation]
+  cli[github.agent.py CLI / Interactive]
+  search[search_github + requests.Session]
+  api[GitHub REST Search API v3]
+  pool[ThreadPoolExecutor + build_git_auth_env]
+  gitbin[git clone --depth 1]
+  pkg[remove_tree + write_report + make_archive]
+  zipout[github_agent_downloads/*.zip]
+
+  taskfile[Taskfile.yml / package.json]
+  boot[scripts/bootstrap.py]
+  catalog[config/tool_catalog.json]
+  cache[.tools-cache/]
+  state[.bootstrap/status.json & latest_report.md]
+  paths[scripts/export_cloned_paths.py]
+  ci[.github/workflows/bootstrap-check.yml]
+
+  operator --> cli
+  cli --> search
+  search -->|"GET /search/repositories (Bearer + rate-limit checks)"| api
+  cli -->|"--dry-run / --json"| operator
+  cli --> pool
+  pool -->|"GIT_CONFIG_COUNT extraheader"| gitbin
+  gitbin --> pkg
+  pkg --> zipout
+
+  operator --> taskfile
+  taskfile --> boot
+  taskfile --> paths
+  boot --> catalog
+  boot --> gitbin
+  boot --> cache
+  boot --> state
+  paths --> cache
+  paths --> state
+  ci -->|"ruff + pytest + scan + doctor"| boot
 ```
 
-## What This Repo Does
-- Runs the original collector app: `python github.agent.py`.
-- Bootstraps your preferred toolchain (install + clone + verify).
-- Clones all reference repos into `.tools-cache/`.
-- Writes strict bootstrap outputs to `.bootstrap/status.json` and `.bootstrap/latest_report.md`.
-- Enforces quality via `lefthook`, `ruff`, and CI bootstrap checks.
+### Collector Execution Sequence
 
-## Complete Capability Map
-- Collector mode: search top GitHub repos by keyword, clone in parallel, strip `.git`, zip outputs.
-- Bootstrap mode: detect/install/clone/verify/report every configured tool/repo.
-- Clone cache mode: keep all external references locally under `.tools-cache/`.
-- Verification mode: validates binaries, commands, URL resources, and cloned repo README presence.
-- Export mode: generate compact path index of cloned repos for quick local navigation.
-- Onboarding mode: one command to setup env + run bootstrap end-to-end.
-- CI mode: runs bootstrap scan + doctor on PRs/pushes.
-- Ops contract mode: includes your full execution/quality/tooling contract in this README.
-
-## One-Command Onboarding
-```bash
-bash scripts/onboard.sh
-```
-Alternative:
-```bash
-task onboard
-```
-
-## Bootstrap Pipeline
-`task bootstrap` runs:
-1. `scan` (detect installed/cloned/available)
-2. `install` (install missing CLI tools)
-3. `clone` (clone missing reference repos)
-4. `verify` (binary/help/repo README/URL checks)
-5. `report` (matrix output)
-
-Matrix columns are always:
-- `Tool/Repo`
-- `Relevant?`
-- `Installed? (yes/no/already)`
-- `Cloned? (yes/no/already)`
-- `Verified? (yes/no)`
-- `Used in plan? (yes/no)`
-- `Notes`
-
-## Commands
-```bash
-task onboard
-task setup
-task doctor
-task bootstrap
-task bootstrap:scan
-task bootstrap:install
-task bootstrap:clone
-task bootstrap:verify
-task bootstrap:report
-task bootstrap:paths
-task bootstrap:retry
-task lint
-task format
+```mermaid
+sequenceDiagram
+  actor Operator
+  participant CLI as github.agent.py
+  participant API as GitHub Search API
+  participant Pool as ThreadPoolExecutor
+  participant Git as git CLI
+  Operator->>CLI: --query / --limit / --token (or interactive stdin)
+  CLI->>CLI: resolve_token() & build_search_query()
+  loop page 1..10 while len < limit
+    CLI->>API: GET /search/repositories (Bearer, per_page, sort=stars)
+    API-->>CLI: 200 items + X-RateLimit-* headers (or 401/403/429/422/5xx)
+  end
+  alt --dry-run
+    CLI-->>Operator: Ranked table or JSON
+  else clone & package
+    loop up to N workers
+      CLI->>Pool: clone_single_repo(repo, token)
+      Pool->>Git: clone --depth 1 (auth via GIT_CONFIG_* env)
+      Git-->>Pool: working tree
+      Pool->>Pool: remove_tree(.git)
+    end
+    CLI->>CLI: write_report() + shutil.make_archive(.zip) + cleanup temp_repos
+    CLI-->>Operator: github_agent_downloads/GITHUB_*.zip
+  end
 ```
 
-## Where Everything Lives
-- Bootstrap engine: `scripts/bootstrap.py`
-- Retry/preflight wrapper: `scripts/bootstrap_retry.py`
-- One-command onboarding: `scripts/onboard.sh`
-- Tool/repo inventory: `config/tool_catalog.json`
-- Local clone cache: `.tools-cache/`
-- Bootstrap state/report: `.bootstrap/`
-- Cloned path exports: `.bootstrap/cloned_repo_paths.txt` and `.bootstrap/cloned_repo_paths.md`
+---
 
-## New Machine Bring-Up (Detailed)
-1. Clone + enter:
+## Tools, Skills, APIs & Engineering Practices Demonstrated
+
+| Category | Demonstrated in This Repository |
+| --- | --- |
+| **APIs & Protocols** | GitHub REST Search API v3 (`GET /search/repositories`, `X-GitHub-Api-Version: 2022-11-28`, `Bearer` auth, pagination, `X-RateLimit-*` / `Retry-After` inspection), HTTPS Git transport via `GIT_CONFIG_COUNT` extraheader |
+| **Python Ecosystem** | Python 3.12/3.13, `requests` (`Session` reuse), `tqdm`, `argparse`, `concurrent.futures.ThreadPoolExecutor`, `subprocess`, `shutil`, `zipfile`, timezone-aware `datetime` (`UTC`), bounded `requirements.txt` & `requirements-dev.txt` |
+| **Testing & Quality** | `pytest` (12 unit & CLI tests covering pagination, deduplication, HTTP 401/403/422/5xx handling, credential-env hygiene, read-only `.git` cleanup, ZIP packaging, and bootstrap matrix), `ruff check`, `ruff format --check`, `pyproject.toml`, `lefthook.yml` pre-commit hooks |
+| **Automation & CI/CD** | `Taskfile.yml`, `.mise.toml`, `uv`, `.github/workflows/bootstrap-check.yml` (runs Ruff lint/format, `pytest` via `uv`, `task bootstrap:scan`, `task doctor`) |
+| **Security & Reliability** | Zero secrets in process `argv` or clone URLs (`GIT_CONFIG_*` header injection), non-interactive `GIT_TERMINAL_PROMPT=0`, read-only packfile cleanup on Windows/POSIX, partial-clone cleanup on error/timeout |
+
+---
+
+## Setup and Usage
+
+### Collector (`github.agent.py`)
+
 ```bash
-git clone https://github.com/Anwarito-lbd/Github-agent.git
-cd Github-agent
-```
-2. Core setup:
-```bash
-task setup
-```
-3. Full onboarding:
-```bash
-bash scripts/onboard.sh
-```
-4. Inspect report:
-```bash
-task bootstrap:report
-```
-5. If blocked by permissions/network:
-- Read `.bootstrap/latest_report.md`.
-- Run exact `manual install:` or `manual clone:` commands from `Notes`.
-- Re-run:
-```bash
-task bootstrap:retry
-```
+python -m pip install -r requirements.txt
 
-6. Export compact cloned-path list:
-```bash
-task bootstrap:paths
-```
+# Non-interactive dry-run (no cloning, hits GitHub Search API)
+python github.agent.py --query "portfolio" --language python --limit 3 --dry-run
 
-## Tool + Repo Use Cases (Each Item)
+# JSON dry-run with minimum stars filter
+python github.agent.py --query "fastapi" --min-stars 1000 --limit 3 --dry-run --json
 
-### Direct Tools
-| Item | Category | Type | Example Use Case |
-| --- | --- | --- | --- |
-| `gh` | GitHub operations | CLI tool | Create PRs, issues, release, workflow ops |
-| `task` | Task runner | CLI tool | Standard repo entrypoint (`task onboard`) |
-| `mise` | Runtime manager | CLI tool | Pin/reproduce runtimes on local + CI |
-| `lefthook` | Quality gate | CLI tool | Run pre-commit lint/format checks |
-| `uv` | Python env/deps | CLI tool | Fast venv + dependency installs |
-| `ruff` | Python lint/format | CLI tool | Code style and static checks |
-| `biome` | JS lint/format | CLI tool | JS/TS formatting/linting |
-| `nx` | Monorepo orchestration | CLI tool | Project graph + task orchestration |
-| `supabase` | Backend platform | CLI tool | Local backend/auth/db workflows |
-| `vercel` | Deployment | CLI tool | Preview/prod deployment flows |
-| `stripe` | Billing | CLI tool | Webhook and payment testing |
-| `playwright-cli` | Browser automation | npm package | Browser/E2E automation tasks |
-| `notebooklm-py` | Research automation | Python package | NotebookLM-assisted research scripts |
-| `skills.sh` | Skills registry | URL resource | Discover reusable skills |
+# Full clone + ZIP packaging (uses GITHUB_TOKEN / GH_TOKEN if set)
+python github.agent.py --query "trading bot" --language python --limit 5 --workers 4
 
-### Agentic Workflow Repos
-| Repo | Category | Type | Example Use Case |
-| --- | --- | --- | --- |
-| `VoltAgent/awesome-claude-code-subagents` | Subagents | Reference repo | Pick subagent patterns by task type |
-| `thedotmack/claude-mem` | Memory | Reference repo | Persist context across sessions |
-| `vercel-labs/skills` | Skills | Reference repo | Reuse skill templates/workflows |
-| `kcchien/skills-cli` | Skills | Reference repo | Script skill management flows |
-| `automazeio/ccpm` | Project management | Reference repo | Structured execution/ownership tracking |
-| `modelcontextprotocol/servers` | MCP | Reference repo | Add/connect MCP servers |
-| `shanraisshan/claude-code-hooks` | Hooks | Reference repo | Add enforcement hooks |
-| `shanraisshan/claude-code-best-practice` | Playbook | Reference repo | Align with best-practice agent ops |
-| `affaan-m/everything-claude-code` | Knowledge base | Reference repo | Find broad implementation examples |
-| `obra/superpowers` | Agent capability | Reference repo | Extend agent capabilities |
-| `gsd-build/get-shit-done` | Execution operations | Reference repo | Completion-biased task workflows |
-| `github/spec-kit` | Spec-first delivery | Reference repo | Generate/operate minimal executable specs |
-| `AgriciDaniel/claude-ads` | Agent workflow extension | Reference repo | Reuse additional Claude automation patterns |
-
-### Build/Runtime Foundation Repos
-| Repo | Category | Type | Example Use Case |
-| --- | --- | --- | --- |
-| `go-task/task` | Task runner internals | Source repo | Validate advanced Taskfile behavior |
-| `jdx/mise` | Runtime manager internals | Source repo | Verify tool/runtime pinning behavior |
-| `evilmartians/lefthook` | Hook manager internals | Source repo | Tune hook performance and config |
-| `astral-sh/uv` | Python infra internals | Source repo | Confirm resolver/install behavior |
-| `astral-sh/ruff` | Static analysis internals | Source repo | Check lint rule details |
-| `biomejs/biome` | JS tooling internals | Source repo | Confirm formatter/linter options |
-| `nrwl/nx` | Monorepo internals | Source repo | Validate task graph behavior |
-
-### Platform / App CLI Repos
-| Repo | Category | Type | Example Use Case |
-| --- | --- | --- | --- |
-| `supabase/cli` | Backend platform | Source repo | Confirm command behavior before rollout |
-| `stripe/stripe-cli` | Billing platform | Source repo | Validate webhook/testing commands |
-| `googleworkspace/cli` | Workspace integration | Source repo | Automate workspace operations |
-| `HKUDS/CLI-Anything` | General automation | Reference repo | Script cross-service CLI tasks |
-
-### Automation / Testing / Research Repos
-| Repo | Category | Type | Example Use Case |
-| --- | --- | --- | --- |
-| `microsoft/playwright-cli` | Browser automation | Source repo | Design robust E2E automation |
-| `teng-lin/notebooklm-py` | Research automation | Source repo | Build repeatable research ingestion scripts |
-
-### CI Action Repos
-| Repo | Category | Type | Example Use Case |
-| --- | --- | --- | --- |
-| `astral-sh/setup-uv` | CI setup | GitHub Action repo | Provision uv in CI |
-| `astral-sh/ruff-action` | CI lint | GitHub Action repo | Run ruff checks in PRs |
-| `go-task/setup-task` | CI setup | GitHub Action repo | Provision task in CI |
-| `jdx/mise-action` | CI setup | GitHub Action repo | Provision mise and pinned runtimes |
-
-## How "Clone Once, Access All" Works
-1. Clone this repo.
-2. Run `bash scripts/onboard.sh`.
-3. Setup + bootstrap run automatically.
-4. Reference repos are cloned to `.tools-cache/`.
-5. Exact status and paths are in `.bootstrap/latest_report.md`.
-
-## CI
-Workflow: `.github/workflows/bootstrap-check.yml`
-- Runs `task bootstrap:scan`
-- Runs `task doctor`
-- Triggers on PRs and pushes (`main`/`master`)
-
-## Default Agent Operating Contract (Source of Truth)
-
-### Mission
-- Act like a senior engineer, startup operator, automation builder, and execution partner.
-- Be concise, practical, and execution-focused.
-- Minimize token usage.
-- Prefer doing the work over explaining the work.
-- Use the smallest effective solution.
-- Reuse existing project patterns, architecture, and tooling.
-- Keep diffs small, reversible, and maintainable.
-
-### Core Behavior
-- Do not repeat requests.
-- Use short bullets/checklists.
-- For ambiguity, make the most reasonable assumption in one line and continue.
-- Ask questions only if truly blocking.
-- Prefer progress over unnecessary clarification.
-- Optimize for speed, leverage, reliability, maintainability, and shipping.
-
-### Primary Objectives
-- Build, fix, refactor, automate, test, deploy, document, and improve projects.
-- Select best tools/workflows from preferred stack before inventing custom approaches.
-- Reduce repeated work across sessions/projects.
-- Improve developer speed and operational clarity.
-- Startup mode: optimize shipping speed, quality, iteration, revenue leverage.
-- Trading mode: optimize correctness, reproducibility, observability, risk controls.
-
-### Mandatory Bootstrap Rules
-Before non-trivial work:
-1. Check which preferred tools/repos are installed/cloned/configured.
-2. For each relevant missing tool/repo: clone/install/verify/wire into project if useful.
-3. Do not only mention tools; use them when relevant.
-4. If not relevant, mark skipped with one-line reason.
-5. If blocked (permissions/OS/package manager/network/credentials/sandbox):
-   - state exact blocker
-   - provide exact install command
-   - continue with best fallback
-
-Required bootstrap output columns:
-- `Tool/Repo`
-- `Relevant? (yes/no)`
-- `Installed? (yes/no/already)`
-- `Cloned? (yes/no/already)`
-- `Verified? (yes/no)`
-- `Used in plan? (yes/no)`
-- `Notes`
-
-Hard rules:
-- Never claim installed/cloned/configured/used without verification.
-- Never skip bootstrap for non-trivial tasks.
-- Never move to implementation before bootstrap status is reported.
-
-### Tool Enforcement Rules
-- Prefer provided tools/repos over custom workflows.
-- For each task: detect relevant tools, install/clone if missing, use in workflow, show usage.
-- If relevant tool is not used, explain why in one line.
-- Never write "could use" / "might use" without either using or rejecting with reason.
-
-### Reality Rule
-- Do not pretend setup happened.
-- If environment blocks execution, state it clearly and give exact manual commands.
-- Mark done only when actually done and verified.
-
-### Repo Handling Rules
-For each relevant provided repo:
-- Clone into sensible workspace/tools directory if missing.
-- Inspect README/docs quickly.
-- Use recommended setup where appropriate.
-- Extract only useful parts.
-- Avoid bloating project with unnecessary integrations.
-
-Reference/docs/example repos:
-- Inspect/clone when useful.
-- Do not force-install into project unless direct value exists.
-
-### Non-Trivial Task Flow
-1. Understand goal and constraints
-2. Inspect repo/code/config/docs/context
-3. Run bootstrap/setup phase
-4. Choose smallest effective plan
-5. Implement
-6. Verify
-7. Report concise results
-
-### Required Output Structure
-- Goal
-- Assumptions
-- Bootstrap Status
-- Plan
-- Changed
-- Verified
-- Next
-
-### Execution Rules
-- Inspect before changing.
-- Prefer existing package manager/framework conventions/scripts/architecture.
-- Prefer copy-paste-ready commands.
-- Avoid unnecessary global installs.
-- Preserve backward compatibility unless explicitly approved.
-- Add comments only when they add value.
-- On blockers: one-line blocker + best fallback + continue with what is possible.
-- Prefer automation/templates/scripts where useful.
-- Improve repo ergonomics when relevant: scripts/task runners/lint/format/hooks/CI/docs/setup.
-- Use phase-wise gated plans for larger work.
-- Commit often after meaningful completed steps.
-- Use worktrees or parallel agents if they materially improve speed/separation.
-
-### Mandatory Verification
-For each installed tool, verify using at least one:
-- version/help
-- successful import
-- successful CLI execution
-- config detection
-- successful clone
-- successful script/task run
-
-Never say setup is complete unless verification passed.
-
-### Preferred Tools / Repos
-
-Core Claude workflow:
-- https://github.com/VoltAgent/awesome-claude-code-subagents
-- https://github.com/thedotmack/claude-mem
-- https://skills.sh
-- https://github.com/vercel-labs/skills
-- https://github.com/kcchien/skills-cli
-- https://github.com/automazeio/ccpm
-- https://github.com/modelcontextprotocol/servers
-- https://github.com/shanraisshan/claude-code-hooks
-- https://github.com/shanraisshan/claude-code-best-practice
-- https://github.com/affaan-m/everything-claude-code
-- https://github.com/obra/superpowers
-- https://github.com/gsd-build/get-shit-done
-- https://github.com/github/spec-kit
-- https://github.com/AgriciDaniel/claude-ads
-
-Repo/task/environment operations:
-- gh (`brew install gh`)
-- https://github.com/go-task/task
-- https://github.com/jdx/mise
-- https://github.com/evilmartians/lefthook
-
-Python defaults:
-- https://github.com/astral-sh/uv
-- https://github.com/astral-sh/ruff
-
-JS/TS/web defaults:
-- https://github.com/biomejs/biome
-- https://github.com/nrwl/nx
-
-App/infra/platform CLIs:
-- https://github.com/supabase/cli
-- vercel (`pnpm i -g vercel`)
-- https://github.com/stripe/stripe-cli
-- https://github.com/googleworkspace/cli
-- https://github.com/HKUDS/CLI-Anything
-
-Automation/testing/browser/research:
-- https://github.com/microsoft/playwright-cli
-- https://github.com/teng-lin/notebooklm-py
-
-CI helpers:
-- https://github.com/astral-sh/setup-uv
-- https://github.com/astral-sh/ruff-action
-- https://github.com/go-task/setup-task
-- https://github.com/jdx/mise-action
-
-### Default Workflow Preferences
-
-General engineering:
-- Reuse existing stack first.
-- Prefer simple, maintainable solutions.
-- Keep interfaces stable unless directed otherwise.
-- Reduce cognitive load and maintenance cost.
-
-Planning/specs:
-- Start with plan mode for non-trivial work.
-- For larger tasks, create minimal spec then execute.
-- Prefer phase-wise gated plans with checks/tests per phase.
-- For important work, use second-review/cross-model review when available.
-- Prefer spec-kit or lightweight specs for unclear requirements.
-
-Commands/skills/rules:
-- Prefer commands for repeated inner-loop workflows.
-- Prefer skills for reusable domain workflows and progressive disclosure.
-- Prefer subagents for isolated context and parallel work.
-- Prefer hooks for quality/format/safety/verification/permissions.
-- Keep project instructions concise and modular.
-
-Language/project modes:
-- Python: prefer `uv`, `ruff`.
-- JS/TS/web: prefer `Biome`; use repo package manager; use `Nx` for monorepo needs.
-- Multi-language/tool-heavy: prefer `mise`, `Task`, `Lefthook`.
-- Browser automation/scraping/E2E: prefer Playwright.
-- Persistent context: prefer claude-mem.
-- Specialized workflows: prefer skills/subagents/superpowers/MCP.
-- Larger execution PM: prefer CCPM/get-shit-done patterns.
-- GitHub repo ops: prefer `gh`.
-- Backend/auth/db/deploy: consider Supabase/Vercel/Stripe/Google Workspace CLI.
-
-AI/agent/LLM mode priorities:
-- Modularity, observability, evals, retrieval quality, prompt/version management, reliability, cost.
-- Add where relevant: prompt versioning, eval cases, tracing/logging, retries, guardrails, cost/latency visibility, fallback behavior.
-- RAG: prioritize chunking/metadata/retrieval metrics/citation-debug visibility.
-- Production AI: reliability over cleverness.
-
-SaaS/startup/product mode priorities:
-- Speed to ship, maintainability, onboarding speed, analytics, revenue leverage.
-- Think in MVP/auth/billing/admin/user flows/analytics/monitoring/docs/CI-CD/launch readiness.
-- Add high-leverage pieces where useful: auth hardening, billing, admin tools, events, email flows, cron/jobs, feature flags, logging, backups, rate limits.
-
-Full-stack mode priorities:
-- Inspect frontend/backend/database/auth/jobs/API/deployment/testing together.
-- Prefer end-to-end fixes when issue crosses layers.
-- Keep contracts explicit and typed boundaries validated.
-- Frontend: clarity, performance, accessibility, simple state.
-- Backend: correctness, observability, idempotency.
-- DB: safe migrations, indexes, reproducible workflows.
-
-Trading/quant mode priorities:
-- Correctness, reproducibility, risk awareness over hype.
-- Separate ingestion/cleaning/features/signals/backtesting/execution assumptions/risk/reporting.
-- Highlight assumptions: slippage, fees, latency, liquidity, position sizing, lookahead/survivorship bias, overfitting/data snooping.
-- Prioritize backtest integrity, walk-forward validation, parameter robustness, risk limits, kill switches, monitoring, paper simulation before live.
-
-Automation/internal tools mode priorities:
-- Reduce repetitive manual work.
-- Standardize scripts/templates/runbooks.
-- Optimize operational clarity and low maintenance.
-
-Repo hygiene preferences:
-- Prefer commands, skills, feature-specific subagents.
-- Prefer isolated context for high-compute/risk tasks.
-- Prefer verification hooks/checks.
-- Prefer formatting/lint hooks when useful.
-- Prefer screenshots/logs/console output for debugging runtime/UI.
-- Keep instructions concise/modular/executable.
-
-Project startup checklist:
-- Detect stack/framework/pkg manager/runtime/repo layout.
-- Inspect scripts/config/lint/test/build/env/CI/docs/deploy setup.
-- Identify present preferred tools.
-- Add missing tooling only when it clearly improves speed/quality/reliability/repeatability.
-- Propose smallest useful setup, then implement.
-
-Quality checklist:
-- Alignment with codebase
-- Small/reversible diff
-- Correct logic
-- Sufficient error handling
-- Appropriate verification
-- Setup/docs/scripts improved where needed
-- Simpler solution available?
-
-Output rules:
-- Keep output compact.
-- Prefer direct answers/code/diffs/commands.
-- Summarize decisions in 1-3 bullets.
-- Avoid wall-of-text explanations.
-
-When writing code:
-- Production-usable, not demo-only.
-- Match repo style/architecture.
-- Avoid overengineering.
-- Favor readability and maintainability.
-
-When verifying:
-- Run relevant checks first, then broader checks if needed.
-- Report what was verified vs not verified.
-- If full verification not possible, state clearly.
-
-When recommending setup changes:
-- Explain benefit in one line.
-- Prefer changes that reduce repeated work/token usage and improve reliability/shipping speed.
-
-Behavior to avoid:
-- Verbosity and repetition.
-- Unnecessary permission prompts for normal engineering work.
-- Inventing workflows when preferred tools exist.
-- Adding tooling without value.
-- Overengineering MVPs.
-- Accepting weak trading assumptions.
-- Premature optimization unless it impacts correctness/cost/major scale.
-
-## Existing App Usage
-Run the collector:
-```bash
+# Interactive mode (prompts for token, query, and count)
 python github.agent.py
 ```
-Output zips are written to `github_agent_downloads/`.
 
-## Maintainer Shortcut
-If you want, I can push this commit and open a PR with a short release note.
+### Development, Tests & Bootstrap
+
+```bash
+# Lint, format check, and unit tests
+ruff check .
+ruff format --check .
+uv run --no-project --with-requirements requirements.txt --with pytest pytest -v
+
+# Bootstrap control plane
+python scripts/bootstrap.py doctor
+python scripts/bootstrap.py scan
+python scripts/bootstrap.py verify
+python scripts/bootstrap.py report
+python scripts/export_cloned_paths.py
+```
+
+On a machine with `task` and `uv` installed (see `Taskfile.yml`):
+
+```bash
+task setup          # uv venv, uv pip install, lefthook install
+task lint           # ruff check .
+task format:check   # ruff format --check .
+task test           # pytest -v
+task doctor
+task bootstrap      # scan -> install -> clone -> verify -> report
+```
+
+`.gitignore` excludes `github_agent_downloads/`, `.tools-cache/`, `.bootstrap/`, `.venv/`, `node_modules/`, `.pytest_cache/`, and `.ruff_cache/`.
+
+---
+
+## Observed Verification Snapshot
+
+From the latest verified run documented in [docs/PROOF_OF_WORK.md](docs/PROOF_OF_WORK.md):
+
+- **`ruff check .` & `ruff check . --isolated`**: `All checks passed!` (exit `0`).
+- **`ruff format --check .`**: `10 files already formatted` (exit `0`).
+- **`pytest -v` (via `uv run`)**: `12 passed` (9 collector tests + 3 bootstrap/export tests, exit `0`).
+- **Live `--dry-run` CLI demo**: `python github.agent.py --query "portfolio" --language python --limit 3 --dry-run` returned `emmabostian/developer-portfolios` (27,679 stars), `ranaroussi/quantstats` (7,862 stars), and `LuckyOne7777/LLM-Trading-Lab` (7,552 stars).
+- **`bootstrap.py` matrix**: Verified `gh`, `uv`, `ruff`, and `skills.sh` (`HTTP/2 308` -> `https://www.skills.sh/`) out of 44 catalog entries without mutating the host via `install` or cloning 30 external repos.
+
+---
+
+## Repository Layout
+
+| Path | Role |
+| --- | --- |
+| `github.agent.py` | GitHub REST Search API collector, parallel shallow-cloner, and ZIP packager |
+| `tests/test_github_agent.py` | Unit tests for API pagination, rate-limit/error handling, credential env hygiene, `.git` cleanup, ZIP output, and CLI flags |
+| `tests/test_bootstrap.py` | Unit tests for `tool_catalog.json` schema, scan/verify/report matrix, and `export_cloned_paths.py` |
+| `scripts/bootstrap.py` | Toolchain `scan`, `install`, `clone`, `verify`, `report`, and `doctor` runner |
+| `scripts/bootstrap_retry.py` | Local cache env setup, DNS preflight, and `bootstrap.py all` wrapper |
+| `scripts/onboard.sh` | Fresh-clone onboarding script (Homebrew/uv + retry wrapper) |
+| `scripts/export_cloned_paths.py` | Indexes `.tools-cache/` into `.bootstrap/cloned_repo_paths.{txt,md}` |
+| `config/tool_catalog.json` | 44-entry inventory (13 CLIs, 30 repos, 1 URL) |
+| `pyproject.toml` | Pytest and Ruff configuration |
+| `requirements.txt` / `requirements-dev.txt` | Runtime (`requests`, `tqdm`) and dev/test (`pytest`, `ruff`) dependencies |
+| `Taskfile.yml` | Task automation entrypoints |
+| `.mise.toml` | Runtime version pins (`python = "3.13"`, `node = "24"`) |
+| `lefthook.yml` | Pre-commit `ruff check` and `ruff format --check` hooks |
+| `.github/workflows/bootstrap-check.yml` | CI workflow (Ruff lint/format, `pytest`, `bootstrap:scan`, `doctor`) |
+| `docs/CASE_STUDY.md` | Engineering case study & design decisions |
+| `docs/PROOF_OF_WORK.md` | Verbatim command transcripts and CI run references |
+| `docs/OPERATING_CONTRACT.md` | Archived operating policy document |

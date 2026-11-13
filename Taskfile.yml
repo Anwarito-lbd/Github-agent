@@ -63,7 +63,17 @@ tasks:
     cmds:
       - ruff format .
 
+  format:check:
+    desc: "Verify code formatting using ruff"
+    cmds:
+      - ruff format --check .
+
   lint:
     desc: "Lint the code using ruff"
     cmds:
       - ruff check .
+
+  test:
+    desc: "Run the pytest test suite"
+    cmds:
+      - pytest -v

@@ -14,3 +14,5 @@ __pycache__/
 .bootstrap/
 node_modules/
 .cache/
+.pytest_cache/
+.ruff_cache/
