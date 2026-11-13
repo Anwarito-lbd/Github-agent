@@ -1,487 +1,341 @@
-# Github Agent + Full Toolchain Bootstrap
+# Github-agent
 
-Python GitHub collector plus a reproducible bootstrap control plane for coding, product, systems, automation, research, AI, SaaS, full-stack, and trading workflows.
+Github-agent is two Python programs in one repository.
 
-## Fresh Machine Usage
-```bash
-git clone <your-repo>
-cd Github-agent
-bash scripts/onboard.sh
+`github.agent.py` is an interactive collector. It asks for a search, calls the GitHub Search API, shallow-clones the matches in parallel, deletes each `.git` directory, and writes one zip under `github_agent_downloads/`.
+
+`scripts/bootstrap.py` is a toolchain control plane. It reads `config/tool_catalog.json` (44 entries: 13 CLIs, 30 reference repositories, 1 URL) and records whether each item is installed, cloned, and verified.
+
+Both programs are ordinary Python. The tree contains no prompt templates, tool-calling schemas, or model SDK. The workflow is the fixed sequence below.
+
+## How the collector runs
+
+1. Print the banner and require `git` on `PATH`. Exit 1 when `git` is missing.
+2. Ask for a GitHub token, a search query, and a count. An empty query exits 1. A non-numeric count becomes 10.
+3. Recreate `github_agent_downloads/temp_repos/`.
+4. `GET https://api.github.com/search/repositories` with `sort=stars`, `order=desc`, and `per_page=100`. Page until the requested count is met, a page is empty, the API returns a non-200 status, or 10 pages have been read. A 401 returns no repositories. A 403 stops paging and keeps whatever was already collected. Results are sorted by stars again before return.
+5. Clone with a pool of 8 workers. Each clone is `git clone --depth 1`, with `GIT_TERMINAL_PROMPT=0` and a 180 second timeout. When a token is present, it is inserted into the HTTPS clone URL.
+6. Delete `.git` inside each successful clone. A failed clone deletes its partial directory. An existing target directory is treated as a skip and does not count as a success.
+7. Write `temp_repos/_RAPPORT_DE_RECHERCHE.txt`, zip that directory to `github_agent_downloads/GITHUB_<query>_<timestamp>.zip`, then delete `temp_repos/`.
+
+The only third-party imports in the collector are `requests` and `tqdm`. Everything else is the Python standard library.
+
+## How bootstrap runs
+
+`python3 scripts/bootstrap.py all` runs five steps. Each step updates `.bootstrap/status.json`. The report step also writes `.bootstrap/latest_report.md`.
+
+| Step | What it does |
+| --- | --- |
+| `scan` | For a CLI, look for `local_bin`, run `detect`, or search `PATH`. For a repo, check `.tools-cache/<cache_dir>`. For a URL, record that install and clone do not apply. |
+| `install` | Run the catalog `install` command for each relevant CLI that is not already present. npm installs create `package.json` when it is missing. A failure stores the `manual_install` string in Notes. |
+| `clone` | `git clone --depth 1` into `.tools-cache/<cache_dir>`, 60 second timeout. |
+| `verify` | CLI: run `verify` and, when set, require `verify_contains`. Repo: require a `README*` file. URL: run the catalog command (`curl` for skills.sh). |
+| `report` | Print a seven-column markdown table and write the same text to `.bootstrap/latest_report.md`. |
+
+The columns are `Tool/Repo`, `Relevant?`, `Installed?`, `Cloned?`, `Verified?`, `Used in plan?`, and `Notes`.
+
+No catalog entry sets `relevant` or `used_in_plan` to false, so every row is marked relevant and used. `doctor` does not read the catalog. It checks `python3`, `git`, `task`, `mise`, `uv`, `ruff`, `lefthook`, `node`, and `npm`, and exits 1 when any check fails.
+
+`scripts/bootstrap_retry.py` creates local pip and npm cache directories, warns when `/opt/homebrew/Cellar` is not writable, resolves `github.com`, `skills.sh`, `registry.npmjs.org`, and `pypi.org`, then runs `bootstrap.py all`. `scripts/onboard.sh` tries to install `task` and `uv` with Homebrew, creates a uv virtualenv, installs `requirements.txt`, and then calls the retry script. `scripts/export_cloned_paths.py` lists directories in `.tools-cache/` into `.bootstrap/cloned_repo_paths.txt` and `.bootstrap/cloned_repo_paths.md`.
+
+## Architecture
+
+```mermaid
+flowchart TD
+  operator[Operator]
+  collector[github.agent.py]
+  taskfile[Taskfile.yml and package.json scripts]
+  onboard[scripts/onboard.sh]
+  retry[scripts/bootstrap_retry.py]
+  boot[scripts/bootstrap.py]
+  catalog[config/tool_catalog.json]
+  api[GitHub Search API]
+  gitbin[git]
+  zipout[github_agent_downloads zip]
+  cache[.tools-cache]
+  state[.bootstrap status and report]
+  paths[scripts/export_cloned_paths.py]
+  ci[bootstrap-check.yml]
+
+  operator --> collector
+  operator --> taskfile
+  taskfile --> onboard
+  taskfile --> boot
+  taskfile --> paths
+  onboard --> retry
+  retry --> boot
+  collector --> api
+  collector --> gitbin
+  collector --> zipout
+  boot --> catalog
+  boot --> gitbin
+  boot --> cache
+  boot --> state
+  paths --> cache
+  paths --> state
+  ci --> boot
 ```
 
-## What This Repo Does
-- Runs the original collector app: `python github.agent.py`.
-- Bootstraps your preferred toolchain (install + clone + verify).
-- Clones all reference repos into `.tools-cache/`.
-- Writes strict bootstrap outputs to `.bootstrap/status.json` and `.bootstrap/latest_report.md`.
-- Enforces quality via `lefthook`, `ruff`, and CI bootstrap checks.
+## Tool-execution sequence
 
-## Complete Capability Map
-- Collector mode: search top GitHub repos by keyword, clone in parallel, strip `.git`, zip outputs.
-- Bootstrap mode: detect/install/clone/verify/report every configured tool/repo.
-- Clone cache mode: keep all external references locally under `.tools-cache/`.
-- Verification mode: validates binaries, commands, URL resources, and cloned repo README presence.
-- Export mode: generate compact path index of cloned repos for quick local navigation.
-- Onboarding mode: one command to setup env + run bootstrap end-to-end.
-- CI mode: runs bootstrap scan + doctor on PRs/pushes.
-- Ops contract mode: includes your full execution/quality/tooling contract in this README.
+Collector, from `main()`:
 
-## One-Command Onboarding
-```bash
-bash scripts/onboard.sh
+```mermaid
+sequenceDiagram
+  actor Operator
+  participant Main as github.agent.py
+  participant API as GitHub Search API
+  participant Workers as ThreadPoolExecutor
+  participant Git as git
+  Operator->>Main: token, query, limit
+  Main->>Main: require git and a non-empty query
+  Main->>API: GET /search/repositories sort=stars
+  API-->>Main: name, clone_url, stars
+  loop up to 8 workers
+    Main->>Workers: clone_single_repo
+    Workers->>Git: clone --depth 1
+    Git-->>Workers: working tree
+    Workers->>Workers: delete .git
+  end
+  Main->>Main: write the search report
+  Main->>Main: zip temp_repos and delete it
+  Main-->>Operator: github_agent_downloads/GITHUB_*.zip
 ```
-Alternative:
-```bash
-task onboard
+
+Bootstrap, from `run_all()`:
+
+```mermaid
+sequenceDiagram
+  participant CLI as bootstrap.py
+  participant Catalog as tool_catalog.json
+  participant Host as PATH, git, curl
+  participant Disk as .bootstrap and .tools-cache
+  CLI->>Catalog: load entries
+  CLI->>Host: scan binaries, local bins, clone dirs
+  CLI->>Disk: save status.json
+  CLI->>Host: install missing CLIs
+  CLI->>Host: git clone --depth 1 into .tools-cache
+  CLI->>Host: verify CLI output, README, or URL
+  CLI->>Disk: write latest_report.md and print it
 ```
 
-## Bootstrap Pipeline
-`task bootstrap` runs:
-1. `scan` (detect installed/cloned/available)
-2. `install` (install missing CLI tools)
-3. `clone` (clone missing reference repos)
-4. `verify` (binary/help/repo README/URL checks)
-5. `report` (matrix output)
+## Demo walkthrough
 
-Matrix columns are always:
-- `Tool/Repo`
-- `Relevant?`
-- `Installed? (yes/no/already)`
-- `Cloned? (yes/no/already)`
-- `Verified? (yes/no)`
-- `Used in plan? (yes/no)`
-- `Notes`
+These commands were run on 13 November 2026 on Linux. Python was 3.12.3. `mise` was not installed, so the `.mise.toml` pins (Python 3.13, Node 24) were not applied. Node on this machine was v22.23.4. No GitHub token was used, and no repository was cloned. The full transcripts are in [docs/PROOF_OF_WORK.md](docs/PROOF_OF_WORK.md).
 
-## Commands
+There is no test suite and no `--dry-run` flag. The safe path is compile, doctor, scan, verify, report, the collector's empty-query exit, and an in-process search that stops before `clone_single_repo`.
+
+Compile and shell syntax both exited 0:
+
+```text
+python3 -m py_compile github.agent.py scripts/bootstrap.py scripts/bootstrap_retry.py scripts/export_cloned_paths.py
+bash -n scripts/onboard.sh
+```
+
+`python3 scripts/bootstrap.py doctor` exited 1:
+
+```text
+OK   python3 --version :: Python 3.12.3
+OK   git --version :: git version 2.43.0
+FAIL task --help :: missing binary: [Errno 2] No such file or directory: 'task'
+FAIL mise --version :: missing binary: [Errno 2] No such file or directory: 'mise'
+FAIL uv --version :: missing binary: [Errno 2] No such file or directory: 'uv'
+FAIL ruff --version :: missing binary: [Errno 2] No such file or directory: 'ruff'
+FAIL lefthook version :: missing binary: [Errno 2] No such file or directory: 'lefthook'
+OK   node --version :: v22.23.4
+OK   npm --version :: 10.9.9
+```
+
+`scan`, `verify`, and `report` then exited 0. Of 44 rows, `gh` verified (`gh version 2.103.0 (2026-10-21)`) and `skills.sh` verified (`curl` returned `HTTP/2 308` to `https://www.skills.sh/`). The other 12 CLIs were not installed. All 30 reference repositories were uncloned. `python3 scripts/export_cloned_paths.py` printed `exported=0`.
+
+The collector was given an empty token and an empty query on stdin. It printed the banner and exited 1. The error is on the same line as the prompt because stdin was a pipe, so the newline was not echoed:
+
+```text
+   👉 Recherche : ❌ Vous devez écrire quelque chose !
+```
+
+`search_github("portfolio language:python", 3, "")` was then called directly, which performs the API request and does not clone. With `requests` 2.34.2 installed from the unpinned `requirements.txt`, the API returned:
+
+```text
+27679	emmabostian/developer-portfolios	https://github.com/emmabostian/developer-portfolios.git
+7861	ranaroussi/quantstats	https://github.com/ranaroussi/quantstats.git
+7551	LuckyOne7777/LLM-Trading-Lab	https://github.com/LuckyOne7777/LLM-Trading-Lab.git
+```
+
+`ruff` 0.17.5 was installed into a temporary prefix because it was not on `PATH`, then run the way `Taskfile.yml` declares. `ruff check` exited 1 with 14 findings. `ruff format --check` exited 1: `github.agent.py` would be reformatted, and the three scripts are already formatted. The findings are listed in the proof doc. The sources were left unchanged.
+
+`bootstrap.py install`, `clone`, `all`, and `bootstrap_retry.py` were not run. They install host packages and clone 30 third-party repositories.
+
+## Verified tools, frameworks, and packages
+
+Versions below come from the files named in the source column, or from a command output quoted in the proof doc. Application code imports `requests` and `tqdm` only. Biome, Nx, Playwright, and Vercel are declared dependencies and catalog entries. No source file imports them.
+
+### Python (`requirements.txt`)
+
+The file lists two unpinned packages. The versions in the last column are what `pip` resolved on 13 November 2026 during the search demo. They are not pins.
+
+| Package | Manifest | Resolved in this run |
+| --- | --- | --- |
+| `requests` | `requirements.txt` | 2.34.2 |
+| `tqdm` | `requirements.txt` | 4.70.1 |
+
+Standard library modules used by the Python sources: `argparse`, `json`, `os`, `pathlib`, `re`, `shutil`, `socket`, `subprocess`, `sys`, `concurrent.futures`, `datetime`. `github.agent.py` also imports `time` and does not use it (`ruff` F401).
+
+### npm (`package.json` and `package-lock.json`)
+
+`package.json` name `github-agent-bootstrap`, version `0.1.0`, private. Lockfile version 3. The lockfile `packages` object has 455 entries (451 unique `name@version` strings). Direct devDependencies and the versions the lockfile resolved:
+
+| Package | Range in package.json | Locked version | License in lockfile |
+| --- | --- | --- | --- |
+| `@biomejs/biome` | `^2.4.9` | 2.4.9 | MIT OR Apache-2.0 |
+| `nx` | `^22.6.1` | 22.6.1 | MIT |
+| `playwright-cli` | `^0.262.0` | 0.262.0 | Apache-2.0 |
+| `vercel` | `^50.37.0` | 50.37.0 | Apache-2.0 |
+
+`node_modules/` was not installed during this pass. `npm ls playwright-cli` still ran against `package.json` and reported an empty tree, which is why the catalog row for `playwright-cli` stayed unverified.
+
+### Runtimes (`.mise.toml`)
+
+| Tool | Pinned value |
+| --- | --- |
+| `python` | 3.13 |
+| `node` | 24 |
+
+### Task runner, hooks, and CI
+
+| Piece | Where it is declared |
+| --- | --- |
+| go-task | `Taskfile.yml` (`version: '3'`), 12 tasks |
+| Lefthook | `lefthook.yml`, pre-commit `ruff check` and `ruff format --check` on staged `*.py` |
+| GitHub Actions | `.github/workflows/bootstrap-check.yml` |
+
+Actions and tools named in the workflow:
+
+| Action or install | Use |
+| --- | --- |
+| `actions/checkout@v4` | checkout |
+| `jdx/mise-action@v2` | mise |
+| `go-task/setup-task@v1` | task |
+| `astral-sh/setup-uv@v6` | uv |
+| `astral-sh/ruff-action@v3` | ruff |
+| `actions/setup-go@v5` with `go-version: "stable"` | Go, used to install lefthook |
+| `go install github.com/evilmartians/lefthook@latest` | lefthook, version not pinned |
+
+The workflow then runs `task bootstrap:scan` and `task doctor`. This pass did not execute GitHub Actions.
+
+### Catalog CLIs and the URL (`config/tool_catalog.json`)
+
+| Name | Id | Kind | Install line from the catalog |
+| --- | --- | --- | --- |
+| `gh` | `gh-cli` | cli | `brew install gh` |
+| `task` | `task-cli` | cli | `brew install go-task` |
+| `mise` | `mise-cli` | cli | `brew install mise` |
+| `lefthook` | `lefthook-cli` | cli | `brew install lefthook` |
+| `uv` | `uv-cli` | cli | `brew install uv` |
+| `ruff` | `ruff-cli` | cli | `brew install ruff` |
+| `biome` | `biome-cli` | cli | `npm install --save-dev @biomejs/biome` |
+| `nx` | `nx-cli` | cli | `npm install --save-dev nx` |
+| `supabase` | `supabase-cli` | cli | `brew install supabase/tap/supabase` |
+| `vercel` | `vercel-cli` | cli | `npm install --save-dev vercel` |
+| `stripe` | `stripe-cli` | cli | `brew install stripe/stripe-cli/stripe` |
+| `playwright-cli` | `playwright-cli` | cli | `npm install --save-dev playwright-cli` |
+| `notebooklm-py` | `notebooklm-py` | cli | `python3 -m pip install notebooklm-py` |
+| `skills.sh` | `skills-sh` | url | No install. Verify is `curl -IsS --max-time 10 https://skills.sh`. |
+
+### Catalog repositories
+
+Each row is `kind: repo`. Bootstrap clones the URL into the cache directory with `--depth 1`.
+
+| Name | Id | Clone URL | Cache directory |
+| --- | --- | --- | --- |
+| `VoltAgent/awesome-claude-code-subagents` | `repo-awesome-claude-code-subagents` | https://github.com/VoltAgent/awesome-claude-code-subagents.git | `.tools-cache/awesome-claude-code-subagents` |
+| `thedotmack/claude-mem` | `repo-claude-mem` | https://github.com/thedotmack/claude-mem.git | `.tools-cache/claude-mem` |
+| `vercel-labs/skills` | `repo-vercel-labs-skills` | https://github.com/vercel-labs/skills.git | `.tools-cache/vercel-labs-skills` |
+| `kcchien/skills-cli` | `repo-kcchien-skills-cli` | https://github.com/kcchien/skills-cli.git | `.tools-cache/skills-cli` |
+| `automazeio/ccpm` | `repo-automazeio-ccpm` | https://github.com/automazeio/ccpm.git | `.tools-cache/ccpm` |
+| `modelcontextprotocol/servers` | `repo-mcp-servers` | https://github.com/modelcontextprotocol/servers.git | `.tools-cache/mcp-servers` |
+| `shanraisshan/claude-code-hooks` | `repo-claude-code-hooks` | https://github.com/shanraisshan/claude-code-hooks.git | `.tools-cache/claude-code-hooks` |
+| `shanraisshan/claude-code-best-practice` | `repo-claude-code-best-practice` | https://github.com/shanraisshan/claude-code-best-practice.git | `.tools-cache/claude-code-best-practice` |
+| `affaan-m/everything-claude-code` | `repo-everything-claude-code` | https://github.com/affaan-m/everything-claude-code.git | `.tools-cache/everything-claude-code` |
+| `obra/superpowers` | `repo-superpowers` | https://github.com/obra/superpowers.git | `.tools-cache/superpowers` |
+| `gsd-build/get-shit-done` | `repo-get-shit-done` | https://github.com/gsd-build/get-shit-done.git | `.tools-cache/get-shit-done` |
+| `github/spec-kit` | `repo-spec-kit` | https://github.com/github/spec-kit.git | `.tools-cache/spec-kit` |
+| `AgriciDaniel/claude-ads` | `repo-claude-ads` | https://github.com/AgriciDaniel/claude-ads.git | `.tools-cache/claude-ads` |
+| `go-task/task` | `repo-go-task-task` | https://github.com/go-task/task.git | `.tools-cache/go-task-task` |
+| `jdx/mise` | `repo-jdx-mise` | https://github.com/jdx/mise.git | `.tools-cache/jdx-mise` |
+| `evilmartians/lefthook` | `repo-evilmartians-lefthook` | https://github.com/evilmartians/lefthook.git | `.tools-cache/lefthook` |
+| `astral-sh/uv` | `repo-astral-uv` | https://github.com/astral-sh/uv.git | `.tools-cache/astral-uv` |
+| `astral-sh/ruff` | `repo-astral-ruff` | https://github.com/astral-sh/ruff.git | `.tools-cache/astral-ruff` |
+| `biomejs/biome` | `repo-biome` | https://github.com/biomejs/biome.git | `.tools-cache/biome` |
+| `nrwl/nx` | `repo-nx` | https://github.com/nrwl/nx.git | `.tools-cache/nx` |
+| `supabase/cli` | `repo-supabase-cli` | https://github.com/supabase/cli.git | `.tools-cache/supabase-cli` |
+| `stripe/stripe-cli` | `repo-stripe-cli` | https://github.com/stripe/stripe-cli.git | `.tools-cache/stripe-cli` |
+| `googleworkspace/cli` | `repo-googleworkspace-cli` | https://github.com/googleworkspace/cli.git | `.tools-cache/googleworkspace-cli` |
+| `HKUDS/CLI-Anything` | `repo-cli-anything` | https://github.com/HKUDS/CLI-Anything.git | `.tools-cache/cli-anything` |
+| `microsoft/playwright-cli` | `repo-playwright-cli` | https://github.com/microsoft/playwright-cli.git | `.tools-cache/playwright-cli` |
+| `teng-lin/notebooklm-py` | `repo-notebooklm-py` | https://github.com/teng-lin/notebooklm-py.git | `.tools-cache/notebooklm-py` |
+| `astral-sh/setup-uv` | `repo-setup-uv` | https://github.com/astral-sh/setup-uv.git | `.tools-cache/setup-uv` |
+| `astral-sh/ruff-action` | `repo-ruff-action` | https://github.com/astral-sh/ruff-action.git | `.tools-cache/ruff-action` |
+| `go-task/setup-task` | `repo-setup-task` | https://github.com/go-task/setup-task.git | `.tools-cache/setup-task` |
+| `jdx/mise-action` | `repo-mise-action` | https://github.com/jdx/mise-action.git | `.tools-cache/mise-action` |
+
+## Setup and usage
+
+Collector, any machine with Python and git:
+
 ```bash
-task onboard
-task setup
+python3 -m pip install -r requirements.txt
+python3 github.agent.py
+```
+
+The script prompts for a token (press Enter to search unauthenticated, with GitHub's lower rate limit), a query, and a count. Zips land in `github_agent_downloads/`.
+
+Bootstrap commands, from `Taskfile.yml` and `package.json`:
+
+```bash
+python3 scripts/bootstrap.py doctor
+python3 scripts/bootstrap.py scan
+python3 scripts/bootstrap.py verify
+python3 scripts/bootstrap.py report
+python3 scripts/export_cloned_paths.py
+```
+
+`python3 scripts/bootstrap.py all` and `bash scripts/onboard.sh` also install CLIs and clone every catalog repository. Most CLI install lines call `brew`. On a machine with Homebrew, `task`, and `uv`, the repo's own entrypoints are:
+
+```bash
+task setup          # uv venv, uv pip install, lefthook install
+task onboard        # scripts/onboard.sh
 task doctor
-task bootstrap
-task bootstrap:scan
-task bootstrap:install
-task bootstrap:clone
-task bootstrap:verify
-task bootstrap:report
-task bootstrap:paths
-task bootstrap:retry
-task lint
-task format
+task bootstrap      # scan, install, clone, verify, report
+task lint           # ruff check .
+task format         # ruff format .
 ```
 
-## Where Everything Lives
-- Bootstrap engine: `scripts/bootstrap.py`
-- Retry/preflight wrapper: `scripts/bootstrap_retry.py`
-- One-command onboarding: `scripts/onboard.sh`
-- Tool/repo inventory: `config/tool_catalog.json`
-- Local clone cache: `.tools-cache/`
-- Bootstrap state/report: `.bootstrap/`
-- Cloned path exports: `.bootstrap/cloned_repo_paths.txt` and `.bootstrap/cloned_repo_paths.md`
+`.gitignore` excludes `github_agent_downloads/`, `.tools-cache/`, `.bootstrap/`, `.venv/`, and `node_modules/`.
 
-## New Machine Bring-Up (Detailed)
-1. Clone + enter:
-```bash
-git clone https://github.com/Anwarito-lbd/Github-agent.git
-cd Github-agent
-```
-2. Core setup:
-```bash
-task setup
-```
-3. Full onboarding:
-```bash
-bash scripts/onboard.sh
-```
-4. Inspect report:
-```bash
-task bootstrap:report
-```
-5. If blocked by permissions/network:
-- Read `.bootstrap/latest_report.md`.
-- Run exact `manual install:` or `manual clone:` commands from `Notes`.
-- Re-run:
-```bash
-task bootstrap:retry
-```
+## Layout
 
-6. Export compact cloned-path list:
-```bash
-task bootstrap:paths
-```
+| Path | Role |
+| --- | --- |
+| `github.agent.py` | Interactive collector |
+| `scripts/bootstrap.py` | Scan, install, clone, verify, report, doctor |
+| `scripts/bootstrap_retry.py` | Cache dirs, DNS preflight, then `bootstrap.py all` |
+| `scripts/onboard.sh` | Homebrew hints, uv setup, then the retry script |
+| `scripts/export_cloned_paths.py` | Write the clone-cache path index |
+| `config/tool_catalog.json` | The 44-entry inventory |
+| `Taskfile.yml` | Task entrypoints |
+| `.mise.toml` | Python 3.13 and Node 24 pins, plus mise tasks |
+| `lefthook.yml` | Pre-commit ruff on staged Python |
+| `.github/workflows/bootstrap-check.yml` | CI scan and doctor |
+| `docs/CASE_STUDY.md` | Engineering write-up |
+| `docs/PROOF_OF_WORK.md` | Command transcripts from 13 November 2026 |
+| `docs/OPERATING_CONTRACT.md` | Previous README policy text, moved unchanged |
 
-## Tool + Repo Use Cases (Each Item)
+## Limits visible in this tree
 
-### Direct Tools
-| Item | Category | Type | Example Use Case |
-| --- | --- | --- | --- |
-| `gh` | GitHub operations | CLI tool | Create PRs, issues, release, workflow ops |
-| `task` | Task runner | CLI tool | Standard repo entrypoint (`task onboard`) |
-| `mise` | Runtime manager | CLI tool | Pin/reproduce runtimes on local + CI |
-| `lefthook` | Quality gate | CLI tool | Run pre-commit lint/format checks |
-| `uv` | Python env/deps | CLI tool | Fast venv + dependency installs |
-| `ruff` | Python lint/format | CLI tool | Code style and static checks |
-| `biome` | JS lint/format | CLI tool | JS/TS formatting/linting |
-| `nx` | Monorepo orchestration | CLI tool | Project graph + task orchestration |
-| `supabase` | Backend platform | CLI tool | Local backend/auth/db workflows |
-| `vercel` | Deployment | CLI tool | Preview/prod deployment flows |
-| `stripe` | Billing | CLI tool | Webhook and payment testing |
-| `playwright-cli` | Browser automation | npm package | Browser/E2E automation tasks |
-| `notebooklm-py` | Research automation | Python package | NotebookLM-assisted research scripts |
-| `skills.sh` | Skills registry | URL resource | Discover reusable skills |
-
-### Agentic Workflow Repos
-| Repo | Category | Type | Example Use Case |
-| --- | --- | --- | --- |
-| `VoltAgent/awesome-claude-code-subagents` | Subagents | Reference repo | Pick subagent patterns by task type |
-| `thedotmack/claude-mem` | Memory | Reference repo | Persist context across sessions |
-| `vercel-labs/skills` | Skills | Reference repo | Reuse skill templates/workflows |
-| `kcchien/skills-cli` | Skills | Reference repo | Script skill management flows |
-| `automazeio/ccpm` | Project management | Reference repo | Structured execution/ownership tracking |
-| `modelcontextprotocol/servers` | MCP | Reference repo | Add/connect MCP servers |
-| `shanraisshan/claude-code-hooks` | Hooks | Reference repo | Add enforcement hooks |
-| `shanraisshan/claude-code-best-practice` | Playbook | Reference repo | Align with best-practice agent ops |
-| `affaan-m/everything-claude-code` | Knowledge base | Reference repo | Find broad implementation examples |
-| `obra/superpowers` | Agent capability | Reference repo | Extend agent capabilities |
-| `gsd-build/get-shit-done` | Execution operations | Reference repo | Completion-biased task workflows |
-| `github/spec-kit` | Spec-first delivery | Reference repo | Generate/operate minimal executable specs |
-| `AgriciDaniel/claude-ads` | Agent workflow extension | Reference repo | Reuse additional Claude automation patterns |
-
-### Build/Runtime Foundation Repos
-| Repo | Category | Type | Example Use Case |
-| --- | --- | --- | --- |
-| `go-task/task` | Task runner internals | Source repo | Validate advanced Taskfile behavior |
-| `jdx/mise` | Runtime manager internals | Source repo | Verify tool/runtime pinning behavior |
-| `evilmartians/lefthook` | Hook manager internals | Source repo | Tune hook performance and config |
-| `astral-sh/uv` | Python infra internals | Source repo | Confirm resolver/install behavior |
-| `astral-sh/ruff` | Static analysis internals | Source repo | Check lint rule details |
-| `biomejs/biome` | JS tooling internals | Source repo | Confirm formatter/linter options |
-| `nrwl/nx` | Monorepo internals | Source repo | Validate task graph behavior |
-
-### Platform / App CLI Repos
-| Repo | Category | Type | Example Use Case |
-| --- | --- | --- | --- |
-| `supabase/cli` | Backend platform | Source repo | Confirm command behavior before rollout |
-| `stripe/stripe-cli` | Billing platform | Source repo | Validate webhook/testing commands |
-| `googleworkspace/cli` | Workspace integration | Source repo | Automate workspace operations |
-| `HKUDS/CLI-Anything` | General automation | Reference repo | Script cross-service CLI tasks |
-
-### Automation / Testing / Research Repos
-| Repo | Category | Type | Example Use Case |
-| --- | --- | --- | --- |
-| `microsoft/playwright-cli` | Browser automation | Source repo | Design robust E2E automation |
-| `teng-lin/notebooklm-py` | Research automation | Source repo | Build repeatable research ingestion scripts |
-
-### CI Action Repos
-| Repo | Category | Type | Example Use Case |
-| --- | --- | --- | --- |
-| `astral-sh/setup-uv` | CI setup | GitHub Action repo | Provision uv in CI |
-| `astral-sh/ruff-action` | CI lint | GitHub Action repo | Run ruff checks in PRs |
-| `go-task/setup-task` | CI setup | GitHub Action repo | Provision task in CI |
-| `jdx/mise-action` | CI setup | GitHub Action repo | Provision mise and pinned runtimes |
-
-## How "Clone Once, Access All" Works
-1. Clone this repo.
-2. Run `bash scripts/onboard.sh`.
-3. Setup + bootstrap run automatically.
-4. Reference repos are cloned to `.tools-cache/`.
-5. Exact status and paths are in `.bootstrap/latest_report.md`.
-
-## CI
-Workflow: `.github/workflows/bootstrap-check.yml`
-- Runs `task bootstrap:scan`
-- Runs `task doctor`
-- Triggers on PRs and pushes (`main`/`master`)
-
-## Default Agent Operating Contract (Source of Truth)
-
-### Mission
-- Act like a senior engineer, startup operator, automation builder, and execution partner.
-- Be concise, practical, and execution-focused.
-- Minimize token usage.
-- Prefer doing the work over explaining the work.
-- Use the smallest effective solution.
-- Reuse existing project patterns, architecture, and tooling.
-- Keep diffs small, reversible, and maintainable.
-
-### Core Behavior
-- Do not repeat requests.
-- Use short bullets/checklists.
-- For ambiguity, make the most reasonable assumption in one line and continue.
-- Ask questions only if truly blocking.
-- Prefer progress over unnecessary clarification.
-- Optimize for speed, leverage, reliability, maintainability, and shipping.
-
-### Primary Objectives
-- Build, fix, refactor, automate, test, deploy, document, and improve projects.
-- Select best tools/workflows from preferred stack before inventing custom approaches.
-- Reduce repeated work across sessions/projects.
-- Improve developer speed and operational clarity.
-- Startup mode: optimize shipping speed, quality, iteration, revenue leverage.
-- Trading mode: optimize correctness, reproducibility, observability, risk controls.
-
-### Mandatory Bootstrap Rules
-Before non-trivial work:
-1. Check which preferred tools/repos are installed/cloned/configured.
-2. For each relevant missing tool/repo: clone/install/verify/wire into project if useful.
-3. Do not only mention tools; use them when relevant.
-4. If not relevant, mark skipped with one-line reason.
-5. If blocked (permissions/OS/package manager/network/credentials/sandbox):
-   - state exact blocker
-   - provide exact install command
-   - continue with best fallback
-
-Required bootstrap output columns:
-- `Tool/Repo`
-- `Relevant? (yes/no)`
-- `Installed? (yes/no/already)`
-- `Cloned? (yes/no/already)`
-- `Verified? (yes/no)`
-- `Used in plan? (yes/no)`
-- `Notes`
-
-Hard rules:
-- Never claim installed/cloned/configured/used without verification.
-- Never skip bootstrap for non-trivial tasks.
-- Never move to implementation before bootstrap status is reported.
-
-### Tool Enforcement Rules
-- Prefer provided tools/repos over custom workflows.
-- For each task: detect relevant tools, install/clone if missing, use in workflow, show usage.
-- If relevant tool is not used, explain why in one line.
-- Never write "could use" / "might use" without either using or rejecting with reason.
-
-### Reality Rule
-- Do not pretend setup happened.
-- If environment blocks execution, state it clearly and give exact manual commands.
-- Mark done only when actually done and verified.
-
-### Repo Handling Rules
-For each relevant provided repo:
-- Clone into sensible workspace/tools directory if missing.
-- Inspect README/docs quickly.
-- Use recommended setup where appropriate.
-- Extract only useful parts.
-- Avoid bloating project with unnecessary integrations.
-
-Reference/docs/example repos:
-- Inspect/clone when useful.
-- Do not force-install into project unless direct value exists.
-
-### Non-Trivial Task Flow
-1. Understand goal and constraints
-2. Inspect repo/code/config/docs/context
-3. Run bootstrap/setup phase
-4. Choose smallest effective plan
-5. Implement
-6. Verify
-7. Report concise results
-
-### Required Output Structure
-- Goal
-- Assumptions
-- Bootstrap Status
-- Plan
-- Changed
-- Verified
-- Next
-
-### Execution Rules
-- Inspect before changing.
-- Prefer existing package manager/framework conventions/scripts/architecture.
-- Prefer copy-paste-ready commands.
-- Avoid unnecessary global installs.
-- Preserve backward compatibility unless explicitly approved.
-- Add comments only when they add value.
-- On blockers: one-line blocker + best fallback + continue with what is possible.
-- Prefer automation/templates/scripts where useful.
-- Improve repo ergonomics when relevant: scripts/task runners/lint/format/hooks/CI/docs/setup.
-- Use phase-wise gated plans for larger work.
-- Commit often after meaningful completed steps.
-- Use worktrees or parallel agents if they materially improve speed/separation.
-
-### Mandatory Verification
-For each installed tool, verify using at least one:
-- version/help
-- successful import
-- successful CLI execution
-- config detection
-- successful clone
-- successful script/task run
-
-Never say setup is complete unless verification passed.
-
-### Preferred Tools / Repos
-
-Core Claude workflow:
-- https://github.com/VoltAgent/awesome-claude-code-subagents
-- https://github.com/thedotmack/claude-mem
-- https://skills.sh
-- https://github.com/vercel-labs/skills
-- https://github.com/kcchien/skills-cli
-- https://github.com/automazeio/ccpm
-- https://github.com/modelcontextprotocol/servers
-- https://github.com/shanraisshan/claude-code-hooks
-- https://github.com/shanraisshan/claude-code-best-practice
-- https://github.com/affaan-m/everything-claude-code
-- https://github.com/obra/superpowers
-- https://github.com/gsd-build/get-shit-done
-- https://github.com/github/spec-kit
-- https://github.com/AgriciDaniel/claude-ads
-
-Repo/task/environment operations:
-- gh (`brew install gh`)
-- https://github.com/go-task/task
-- https://github.com/jdx/mise
-- https://github.com/evilmartians/lefthook
-
-Python defaults:
-- https://github.com/astral-sh/uv
-- https://github.com/astral-sh/ruff
-
-JS/TS/web defaults:
-- https://github.com/biomejs/biome
-- https://github.com/nrwl/nx
-
-App/infra/platform CLIs:
-- https://github.com/supabase/cli
-- vercel (`pnpm i -g vercel`)
-- https://github.com/stripe/stripe-cli
-- https://github.com/googleworkspace/cli
-- https://github.com/HKUDS/CLI-Anything
-
-Automation/testing/browser/research:
-- https://github.com/microsoft/playwright-cli
-- https://github.com/teng-lin/notebooklm-py
-
-CI helpers:
-- https://github.com/astral-sh/setup-uv
-- https://github.com/astral-sh/ruff-action
-- https://github.com/go-task/setup-task
-- https://github.com/jdx/mise-action
-
-### Default Workflow Preferences
-
-General engineering:
-- Reuse existing stack first.
-- Prefer simple, maintainable solutions.
-- Keep interfaces stable unless directed otherwise.
-- Reduce cognitive load and maintenance cost.
-
-Planning/specs:
-- Start with plan mode for non-trivial work.
-- For larger tasks, create minimal spec then execute.
-- Prefer phase-wise gated plans with checks/tests per phase.
-- For important work, use second-review/cross-model review when available.
-- Prefer spec-kit or lightweight specs for unclear requirements.
-
-Commands/skills/rules:
-- Prefer commands for repeated inner-loop workflows.
-- Prefer skills for reusable domain workflows and progressive disclosure.
-- Prefer subagents for isolated context and parallel work.
-- Prefer hooks for quality/format/safety/verification/permissions.
-- Keep project instructions concise and modular.
-
-Language/project modes:
-- Python: prefer `uv`, `ruff`.
-- JS/TS/web: prefer `Biome`; use repo package manager; use `Nx` for monorepo needs.
-- Multi-language/tool-heavy: prefer `mise`, `Task`, `Lefthook`.
-- Browser automation/scraping/E2E: prefer Playwright.
-- Persistent context: prefer claude-mem.
-- Specialized workflows: prefer skills/subagents/superpowers/MCP.
-- Larger execution PM: prefer CCPM/get-shit-done patterns.
-- GitHub repo ops: prefer `gh`.
-- Backend/auth/db/deploy: consider Supabase/Vercel/Stripe/Google Workspace CLI.
-
-AI/agent/LLM mode priorities:
-- Modularity, observability, evals, retrieval quality, prompt/version management, reliability, cost.
-- Add where relevant: prompt versioning, eval cases, tracing/logging, retries, guardrails, cost/latency visibility, fallback behavior.
-- RAG: prioritize chunking/metadata/retrieval metrics/citation-debug visibility.
-- Production AI: reliability over cleverness.
-
-SaaS/startup/product mode priorities:
-- Speed to ship, maintainability, onboarding speed, analytics, revenue leverage.
-- Think in MVP/auth/billing/admin/user flows/analytics/monitoring/docs/CI-CD/launch readiness.
-- Add high-leverage pieces where useful: auth hardening, billing, admin tools, events, email flows, cron/jobs, feature flags, logging, backups, rate limits.
-
-Full-stack mode priorities:
-- Inspect frontend/backend/database/auth/jobs/API/deployment/testing together.
-- Prefer end-to-end fixes when issue crosses layers.
-- Keep contracts explicit and typed boundaries validated.
-- Frontend: clarity, performance, accessibility, simple state.
-- Backend: correctness, observability, idempotency.
-- DB: safe migrations, indexes, reproducible workflows.
-
-Trading/quant mode priorities:
-- Correctness, reproducibility, risk awareness over hype.
-- Separate ingestion/cleaning/features/signals/backtesting/execution assumptions/risk/reporting.
-- Highlight assumptions: slippage, fees, latency, liquidity, position sizing, lookahead/survivorship bias, overfitting/data snooping.
-- Prioritize backtest integrity, walk-forward validation, parameter robustness, risk limits, kill switches, monitoring, paper simulation before live.
-
-Automation/internal tools mode priorities:
-- Reduce repetitive manual work.
-- Standardize scripts/templates/runbooks.
-- Optimize operational clarity and low maintenance.
-
-Repo hygiene preferences:
-- Prefer commands, skills, feature-specific subagents.
-- Prefer isolated context for high-compute/risk tasks.
-- Prefer verification hooks/checks.
-- Prefer formatting/lint hooks when useful.
-- Prefer screenshots/logs/console output for debugging runtime/UI.
-- Keep instructions concise/modular/executable.
-
-Project startup checklist:
-- Detect stack/framework/pkg manager/runtime/repo layout.
-- Inspect scripts/config/lint/test/build/env/CI/docs/deploy setup.
-- Identify present preferred tools.
-- Add missing tooling only when it clearly improves speed/quality/reliability/repeatability.
-- Propose smallest useful setup, then implement.
-
-Quality checklist:
-- Alignment with codebase
-- Small/reversible diff
-- Correct logic
-- Sufficient error handling
-- Appropriate verification
-- Setup/docs/scripts improved where needed
-- Simpler solution available?
-
-Output rules:
-- Keep output compact.
-- Prefer direct answers/code/diffs/commands.
-- Summarize decisions in 1-3 bullets.
-- Avoid wall-of-text explanations.
-
-When writing code:
-- Production-usable, not demo-only.
-- Match repo style/architecture.
-- Avoid overengineering.
-- Favor readability and maintainability.
-
-When verifying:
-- Run relevant checks first, then broader checks if needed.
-- Report what was verified vs not verified.
-- If full verification not possible, state clearly.
-
-When recommending setup changes:
-- Explain benefit in one line.
-- Prefer changes that reduce repeated work/token usage and improve reliability/shipping speed.
-
-Behavior to avoid:
-- Verbosity and repetition.
-- Unnecessary permission prompts for normal engineering work.
-- Inventing workflows when preferred tools exist.
-- Adding tooling without value.
-- Overengineering MVPs.
-- Accepting weak trading assumptions.
-- Premature optimization unless it impacts correctness/cost/major scale.
-
-## Existing App Usage
-Run the collector:
-```bash
-python github.agent.py
-```
-Output zips are written to `github_agent_downloads/`.
-
-## Maintainer Shortcut
-If you want, I can push this commit and open a PR with a short release note.
+- A pasted token is placed in the `git clone` URL, so it is part of the process arguments for the duration of the clone.
+- The collector only starts through interactive `input()`. Library functions can be called separately, which is how the search demo was run.
+- `requirements.txt` does not pin versions. There is no `ruff.toml`. The CI lefthook install uses `@latest`.
+- `doctor` ignores `gh`, which the catalog does verify, and checks `node` and `npm`, which the catalog does not list.
+- Install and catalog-clone commands time out after 60 seconds. Collector clones time out after 180 seconds.
+- There are no tests. `ruff check` on 13 November 2026 reported 14 findings and a format diff for `github.agent.py`.
