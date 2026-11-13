@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 """Render docs/images/collector_overview.png from catalog and verified run data."""
 
 from __future__ import annotations
