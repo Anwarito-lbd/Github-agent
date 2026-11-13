@@ -80,9 +80,10 @@ def join_cmd(cmd: list[str]) -> str:
 
 
 def run_cmd(cmd: list[str], timeout: int = 240) -> tuple[bool, str]:
+    resolved_cmd = [shutil.which(cmd[0]) or cmd[0], *cmd[1:]]
     try:
         result = subprocess.run(
-            cmd,
+            resolved_cmd,
             cwd=ROOT,
             capture_output=True,
             text=True,

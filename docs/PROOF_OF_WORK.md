@@ -352,3 +352,147 @@ OK   npm --version :: 11.19.1
 The `task --help` row was also `OK`. Its message is the full usage text, which includes `Runs the specified task(s).`
 
 Run URL: https://github.com/Anwarito-lbd/Github-agent/actions/runs/43351099399
+
+---
+
+## Follow-up: Collector API hardening, non-interactive CLI, and pytest suite (Windows verification pass)
+
+Verified on Windows 11 after adding non-interactive CLI flags (`--query`, `--limit`, `--language`, `--min-stars`, `--dry-run`, `--json`), `GIT_CONFIG_*` header auth, rate-limit diagnostics (`X-RateLimit-*` / `Retry-After` / `422` / `5xx` retry), cross-platform `.git` cleanup, Windows `.cmd` shim resolution in `scripts/bootstrap.py`, and 12 `pytest` unit tests (`tests/test_github_agent.py`, `tests/test_bootstrap.py`).
+
+Host tool versions observed:
+
+| Check | Result |
+| --- | --- |
+| `python --version` | Python 3.12.10 |
+| `ruff --version` | ruff 0.16.8 |
+| `pytest --version` | pytest 9.1.1 |
+| `uv --version` | uv 0.12.3 |
+| `gh --version` | gh version 2.96.0 (2026-07-02) |
+| `git --version` | git version 2.55.0.windows.3 |
+| `node --version` / `npm --version` | v24.19.0 / 11.17.0 |
+
+### Compile, Ruff lint, Ruff format, and Pytest
+
+```text
+python -m py_compile github.agent.py scripts/bootstrap.py scripts/bootstrap_retry.py scripts/export_cloned_paths.py tests/test_github_agent.py tests/test_bootstrap.py
+ruff check .
+ruff check . --isolated
+ruff format --check .
+uv run --no-project --with-requirements requirements.txt --with pytest pytest -v
+```
+
+Outputs (all exited `0`):
+
+```text
+All checks passed!
+All checks passed!
+10 files already formatted
+Installed 12 packages in 2.07s
+============================= test session starts =============================
+platform win32 -- Python 3.12.10, pytest-9.2.0, pluggy-1.7.0 -- C:\Users\issao\AppData\Local\uv\cache\builds-v0\.tmpEqU42g\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\issao\Downloads\portfolio\agy-work\Github-agent
+configfile: pyproject.toml
+testpaths: tests
+collecting ... collected 12 items
+
+tests/test_bootstrap.py::test_load_catalog_real_inventory PASSED         [  8%]
+tests/test_bootstrap.py::test_scan_verify_report_matrix PASSED           [ 16%]
+tests/test_bootstrap.py::test_export_cloned_paths_with_mocked_root PASSED [ 25%]
+tests/test_github_agent.py::test_clean_filename_and_search_query PASSED  [ 33%]
+tests/test_github_agent.py::test_resolve_token_precedence PASSED         [ 41%]
+tests/test_github_agent.py::test_build_git_auth_env_never_exposes_token_in_url PASSED [ 50%]
+tests/test_github_agent.py::test_search_github_pagination_dedup_and_per_page PASSED [ 58%]
+tests/test_github_agent.py::test_search_github_handles_401_403_422_and_500 PASSED [ 66%]
+tests/test_github_agent.py::test_clone_single_repo_strips_git_and_avoids_token_in_args PASSED [ 75%]
+tests/test_github_agent.py::test_clone_single_repo_cleans_up_on_failure PASSED [ 83%]
+tests/test_github_agent.py::test_package_repos_creates_zip_with_report PASSED [ 91%]
+tests/test_github_agent.py::test_cli_dry_run_json_and_empty_query PASSED [100%]
+
+============================= 12 passed in 2.15s ==============================
+```
+
+### Live GitHub REST Search API CLI demos (`--dry-run` and `--dry-run --json`)
+
+```text
+python github.agent.py --query "portfolio" --language python --limit 3 --dry-run
+```
+
+Exit code `0`:
+
+```text
+============================================================
+      🤖 GITHUB AUTO-COLLECTOR AGENT
+      Recherche -> Clone -> Zip
+============================================================
+
+
+🔎 Recherche des 3 meilleurs dépôts pour : 'portfolio language:python'...
+
+🧪 Mode dry-run (aucun clonage ni archive ZIP) :
+  - [27679★] emmabostian/developer-portfolios [Python] -> https://github.com/emmabostian/developer-portfolios.git
+  - [7862★] ranaroussi/quantstats [Python] -> https://github.com/ranaroussi/quantstats.git
+  - [7552★] LuckyOne7777/LLM-Trading-Lab [Python] -> https://github.com/LuckyOne7777/LLM-Trading-Lab.git
+```
+
+```text
+python github.agent.py --query "fastapi" --min-stars 1000 --limit 3 --dry-run --json
+```
+
+Exit code `0`:
+
+```text
+🔎 Recherche des 3 meilleurs dépôts pour : 'fastapi stars:>=1000'...
+[
+  {
+    "name": "fastapi",
+    "full_name": "fastapi/fastapi",
+    "clone_url": "https://github.com/fastapi/fastapi.git",
+    "html_url": "https://github.com/fastapi/fastapi",
+    "stars": 104676,
+    "owner": "fastapi",
+    "language": "Python",
+    "description": "FastAPI framework, high performance, easy to learn, fast to code, ready for production"
+  },
+  {
+    "name": "headroom",
+    "full_name": "headroomlabs-ai/headroom",
+    "clone_url": "https://github.com/headroomlabs-ai/headroom.git",
+    "html_url": "https://github.com/headroomlabs-ai/headroom",
+    "stars": 79511,
+    "owner": "headroomlabs-ai",
+    "language": "Python",
+    "description": "Compress tool outputs, logs, files, and RAG chunks before they reach the LLM. 20% fewer tokens for coding agents, 60-95% fewer tokens for JSON, same answers. Library, proxy, MCP server."
+  },
+  {
+    "name": "full-stack-fastapi-template",
+    "full_name": "fastapi/full-stack-fastapi-template",
+    "clone_url": "https://github.com/fastapi/full-stack-fastapi-template.git",
+    "html_url": "https://github.com/fastapi/full-stack-fastapi-template",
+    "stars": 46239,
+    "owner": "fastapi",
+    "language": "TypeScript",
+    "description": "Full-stack web application template with FastAPI, React, SQLModel, PostgreSQL, Vite, Tailwind CSS, shadcn/ui, FastAPI Cloud, and Docker Compose."
+  }
+]
+```
+
+### Bootstrap scan, verify, report, export, and doctor on Windows
+
+`python scripts/bootstrap.py scan`, `verify`, `report`, and `python scripts/export_cloned_paths.py` exited `0`:
+- Verified 4 of 44 catalog entries (`gh`, `uv`, `ruff`, and `skills.sh` via `curl -IsS --max-time 10 https://skills.sh`).
+- Remaining 10 CLIs were absent on the Windows host; all 30 reference repositories were uncloned (`exported=0`).
+
+`python scripts/bootstrap.py doctor` exited `1` (expected on Windows where `task`, `mise`, `lefthook`, and the `python3` alias are not installed; `npm.cmd` now resolves cleanly via `shutil.which`):
+
+```text
+FAIL python3 --version :: Python was not found; run without arguments to install from the Microsoft Store, or disable this shortcut from Settings > Apps > Advanced app settings > App execution aliases.
+OK   git --version :: git version 2.55.0.windows.3
+FAIL task --help :: missing binary: [WinError 2] The system cannot find the file specified
+FAIL mise --version :: missing binary: [WinError 2] The system cannot find the file specified
+OK   uv --version :: uv 0.12.3 (507230998 2026-08-07 x86_64-pc-windows-msvc)
+OK   ruff --version :: ruff 0.16.8
+FAIL lefthook version :: missing binary: [WinError 2] The system cannot find the file specified
+OK   node --version :: v24.19.0
+OK   npm --version :: 11.17.0
+```
