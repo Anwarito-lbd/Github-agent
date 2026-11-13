@@ -251,3 +251,45 @@ resolve api.github.com True
 ## Tests
 
 A search of the tree found no test files and no `test` script in `package.json`.
+
+## Follow-up: Bootstrap Checks failed on the same ruff findings
+
+GitHub Actions run 43350160230, job `bootstrap-check`, conclusion failure. Checkout, Setup mise, Setup Task, and Setup uv succeeded. Setup ruff failed. Setup Go, Install lefthook, Bootstrap scan, and Doctor were skipped.
+
+The failing step is `astral-sh/ruff-action@v3` with default `args: check`. The log says it installed ruff 0.17.5 and then ran:
+
+```text
+ruff check /home/runner/work/Github-agent/Github-agent
+```
+
+The annotations were the same 14 rules listed above (`EXE001`, `UP009`, `I001`, `F401`, `PLW1510`, `BLE001`, `FURB122`, `F541`, `TRY004`). The log line was:
+
+```text
+The process '/opt/hostedtoolcache/ruff/0.17.5/x86_64/ruff' failed with exit code 1
+```
+
+Run URL: https://github.com/Anwarito-lbd/Github-agent/actions/runs/43350160230
+
+The follow-up commit fixes those findings and formats `github.agent.py`. Re-run on this machine with `/tmp/ruff-prefix/local/bin/ruff` 0.17.5:
+
+```text
+ruff check .
+```
+
+```text
+All checks passed!
+```
+
+Exit code 0.
+
+```text
+ruff format --check github.agent.py scripts/bootstrap.py scripts/bootstrap_retry.py scripts/export_cloned_paths.py
+```
+
+```text
+4 files already formatted
+```
+
+Exit code 0.
+
+`python3 -m py_compile` on the four Python files exited 0. The empty-query stdin path still exited 1 with `Vous devez écrire quelque chose !`. `search_github("portfolio language:python", 3, "")` still returned three repositories and did not clone them. Star counts on that second call were 27679, 7862, and 7551 for the same three full names as the first call.

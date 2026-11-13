@@ -162,7 +162,9 @@ The collector was given an empty token and an empty query on stdin. It printed t
 7551	LuckyOne7777/LLM-Trading-Lab	https://github.com/LuckyOne7777/LLM-Trading-Lab.git
 ```
 
-`ruff` 0.17.5 was installed into a temporary prefix because it was not on `PATH`, then run the way `Taskfile.yml` declares. `ruff check` exited 1 with 14 findings. `ruff format --check` exited 1: `github.agent.py` would be reformatted, and the three scripts are already formatted. The findings are listed in the proof doc. The sources were left unchanged.
+`ruff` 0.17.5 was installed into a temporary prefix because it was not on `PATH`, then run the way `Taskfile.yml` declares. That first `ruff check` exited 1 with 14 findings. `ruff format --check` exited 1: `github.agent.py` would be reformatted, and the three scripts were already formatted. The findings are listed in the proof doc.
+
+GitHub Actions run [43350160230](https://github.com/Anwarito-lbd/Github-agent/actions/runs/43350160230) then failed in the Setup ruff step. `astral-sh/ruff-action@v3` runs `ruff check` by default, and it reported the same 14 rules. The follow-up commit fixes those findings, marks the four Python entrypoints executable, and formats `github.agent.py`. After that commit, `ruff check .` and `ruff format --check` on the four Python files both exited 0 with ruff 0.17.5. The empty-query path still exits 1, and the same search call still returns three repositories.
 
 `bootstrap.py install`, `clone`, `all`, and `bootstrap_retry.py` were not run. They install host packages and clone 30 third-party repositories.
 
@@ -338,4 +340,4 @@ task format         # ruff format .
 - `requirements.txt` does not pin versions. There is no `ruff.toml`. The CI lefthook install uses `@latest`.
 - `doctor` ignores `gh`, which the catalog does verify, and checks `node` and `npm`, which the catalog does not list.
 - Install and catalog-clone commands time out after 60 seconds. Collector clones time out after 180 seconds.
-- There are no tests. `ruff check` on 13 November 2026 reported 14 findings and a format diff for `github.agent.py`.
+- There are no tests. The first `ruff check` on 13 November 2026 reported 14 findings. Those findings are fixed in the follow-up commit that makes `ruff check .` exit 0.

@@ -35,7 +35,7 @@ def load_catalog() -> list[dict[str, Any]]:
     data = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
     entries = data.get("entries", [])
     if not isinstance(entries, list):
-        raise ValueError("Catalog format invalid: entries must be a list.")
+        raise TypeError("Catalog format invalid: entries must be a list.")
     return entries
 
 

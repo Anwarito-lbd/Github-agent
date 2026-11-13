@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 🤖 GITHUB AGENT - COLLECTOR
@@ -13,14 +12,13 @@ Ce script est un agent autonome qui :
 """
 
 import os
-import sys
+import re
 import shutil
 import subprocess
-import time
-import re
-from pathlib import Path
-from datetime import datetime
+import sys
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from pathlib import Path
 
 # Tentative d'import des librairies externes
 try:
@@ -42,55 +40,62 @@ WORK_DIR = BASE_DIR / "temp_repos"
 # Fonctions Utilitaires
 # =====================================================
 
+
 def clean_filename(text):
     """Nettoie le nom des dossiers pour éviter les erreurs Windows/Linux."""
     # Garde seulement alphanumérique, tirets et underscores
-    return re.sub(r'[^\w\-_]', '_', text)
+    return re.sub(r"[^\w\-_]", "_", text)
+
 
 def print_banner():
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("      🤖 GITHUB AUTO-COLLECTOR AGENT")
     print("      Recherche -> Clone -> Zip")
-    print("="*60 + "\n")
+    print("=" * 60 + "\n")
+
 
 def check_git_installed():
     try:
-        subprocess.run(["git", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(
+            ["git", "--version"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
         return True
     except FileNotFoundError:
         return False
+
 
 # =====================================================
 # 1. Module de Recherche (API GitHub)
 # =====================================================
 
+
 def search_github(query, limit, token):
     print(f"\n🔎 Recherche des {limit} meilleurs dépôts pour : '{query}'...")
-    
+
     api_url = "https://api.github.com/search/repositories"
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "User-Agent": "Github-Agent-v2"
-    }
+    headers = {"Accept": "application/vnd.github+json", "User-Agent": "Github-Agent-v2"}
     if token:
         headers["Authorization"] = f"token {token}"
 
     repos_found = []
     page = 1
-    per_page = 100 # Max autorisé par GitHub par page
+    per_page = 100  # Max autorisé par GitHub par page
 
     while len(repos_found) < limit:
         params = {
             "q": query,
-            "sort": "stars", # On veut les plus populaires
+            "sort": "stars",  # On veut les plus populaires
             "order": "desc",
             "per_page": per_page,
-            "page": page
+            "page": page,
         }
 
         try:
             r = requests.get(api_url, headers=headers, params=params, timeout=10)
-            
+
             if r.status_code == 401:
                 print("❌ Erreur : Votre Token est invalide.")
                 return []
@@ -103,35 +108,40 @@ def search_github(query, limit, token):
 
             data = r.json()
             items = data.get("items", [])
-            
+
             if not items:
-                break # Plus de résultats
+                break  # Plus de résultats
 
             for item in items:
-                repos_found.append({
-                    "name": item["name"],
-                    "full_name": item["full_name"],
-                    "clone_url": item["clone_url"],
-                    "stars": item["stargazers_count"],
-                    "owner": item["owner"]["login"]
-                })
+                repos_found.append(
+                    {
+                        "name": item["name"],
+                        "full_name": item["full_name"],
+                        "clone_url": item["clone_url"],
+                        "stars": item["stargazers_count"],
+                        "owner": item["owner"]["login"],
+                    }
+                )
                 if len(repos_found) >= limit:
                     break
-            
-            page += 1
-            if page > 10: break # Sécurité anti-boucle infinie
 
-        except Exception as e:
+            page += 1
+            if page > 10:
+                break  # Sécurité anti-boucle infinie
+
+        except requests.RequestException as e:
             print(f"❌ Erreur de connexion : {e}")
             break
 
     # On trie une dernière fois par étoiles au cas où
-    repos_found.sort(key=lambda x: x['stars'], reverse=True)
+    repos_found.sort(key=lambda x: x["stars"], reverse=True)
     return repos_found[:limit]
+
 
 # =====================================================
 # 2. Module de Clonage
 # =====================================================
+
 
 def clone_single_repo(repo_info, token):
     """Fonction exécutée par les threads pour cloner."""
@@ -140,7 +150,7 @@ def clone_single_repo(repo_info, token):
     target_path = WORK_DIR / folder_name
 
     if target_path.exists():
-        return None # Déjà cloné
+        return None  # Déjà cloné
 
     # URL authentifiée pour éviter les limites de clonage
     clone_url = repo_info["clone_url"]
@@ -158,26 +168,28 @@ def clone_single_repo(repo_info, token):
             ["git", "clone", "--depth", "1", auth_url, str(target_path)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            timeout=180, # 3 minutes max par repo
+            timeout=180,  # 3 minutes max par repo
             check=True,
-            env=env
+            env=env,
         )
-        
+
         # Nettoyage : on supprime le dossier caché .git pour alléger le ZIP
         git_hidden = target_path / ".git"
         if git_hidden.exists():
             shutil.rmtree(git_hidden, ignore_errors=True)
-            
+
         return repo_info
-    except Exception:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
         # Si échec, on nettoie le dossier vide
         if target_path.exists():
             shutil.rmtree(target_path, ignore_errors=True)
         return None
 
+
 # =====================================================
 # MAIN LOOP
 # =====================================================
+
 
 def main():
     print_banner()
@@ -190,14 +202,18 @@ def main():
 
     # 1. Inputs Utilisateur (INTERACTIF)
     print("📝 VEUILLEZ RÉPONDRE AUX QUESTIONS :\n")
-    
+
     # A. Token
     print("1. Collez votre Token GitHub (Classic) pour l'accès API.")
-    print("   (Si vous n'en avez pas, appuyez juste sur Entrée, mais la recherche sera limitée)")
+    print(
+        "   (Si vous n'en avez pas, appuyez juste sur Entrée, mais la recherche sera limitée)"
+    )
     user_token = input("   👉 Token : ").strip()
 
     # B. Recherche
-    print("\n2. Que cherchez-vous ? (ex: 'trading bot python', 'portfolio react', 'django ecommerce')")
+    print(
+        "\n2. Que cherchez-vous ? (ex: 'trading bot python', 'portfolio react', 'django ecommerce')"
+    )
     user_query = input("   👉 Recherche : ").strip()
     if not user_query:
         print("❌ Vous devez écrire quelque chose !")
@@ -209,7 +225,7 @@ def main():
         count_str = input("   👉 Nombre : ").strip()
         user_limit = int(count_str)
     except ValueError:
-        user_limit = 10 # Défaut
+        user_limit = 10  # Défaut
         print("⚠️ Nombre invalide, on part sur 10 par défaut.")
 
     # 2. Préparation Dossiers
@@ -228,14 +244,16 @@ def main():
 
     # 4. Clonage Multi-thread
     success_count = 0
-    
+
     # On utilise 8 "ouvriers" en parallèle pour aller vite
     with ThreadPoolExecutor(max_workers=8) as executor:
         # On prépare les tâches
         futures = [executor.submit(clone_single_repo, r, user_token) for r in repos]
-        
+
         # On affiche la barre de progression
-        for future in tqdm(futures, total=len(repos), desc="⬇️  Téléchargement", unit="repo"):
+        for future in tqdm(
+            futures, total=len(repos), desc="⬇️  Téléchargement", unit="repo"
+        ):
             result = future.result()
             if result:
                 success_count += 1
@@ -249,8 +267,9 @@ def main():
         f.write(f"Projets demandés : {user_limit}\n")
         f.write(f"Projets téléchargés : {success_count}\n")
         f.write("-" * 30 + "\n")
-        for r in repos:
-            f.write(f"[{r['stars']}★] {r['full_name']} -> {r['clone_url']}\n")
+        f.writelines(
+            f"[{r['stars']}★] {r['full_name']} -> {r['clone_url']}\n" for r in repos
+        )
 
     # 6. Compression (ZIP)
     print("\n📦 Création de l'archive ZIP...")
@@ -258,21 +277,22 @@ def main():
     zip_filename = f"GITHUB_{safe_query_name}_{timestamp}"
     output_zip_path = BASE_DIR / zip_filename
 
-    shutil.make_archive(str(output_zip_path), 'zip', WORK_DIR)
+    shutil.make_archive(str(output_zip_path), "zip", WORK_DIR)
 
     # Nettoyage temporaire
     shutil.rmtree(WORK_DIR, ignore_errors=True)
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("✅ MISSION ACCOMPLIE !")
-    print(f"📂 Votre fichier est prêt ici :")
+    print("📂 Votre fichier est prêt ici :")
     print(f"   👉 {output_zip_path}.zip")
-    print("="*60 + "\n")
+    print("=" * 60 + "\n")
+
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
         print("\n🛑 Arrêt forcé par l'utilisateur.")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - last-resort message for the interactive CLI
         print(f"\n❌ Erreur inattendue : {e}")
